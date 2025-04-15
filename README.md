@@ -27,7 +27,21 @@ This project consists of two main components:
 
 ---
 
+<p align="center">
+  <img src="/data/image2025-4-8_16-8-32.png" width="240" title="hover text">
+  <img src="/data/image2025-4-8_16-9-0.png" width="240" title="hover text">
+  <img src="/data/image2025-4-8_16-9-23.png" width="240" title="hover text">
+  <img src="/data/image2025-4-8_16-9-44.png" width="240" title="hover text">
+  <img src="/data/image2025-4-8_16-10-15.png" width="240" title="hover text">
+</p>
+
+
+
+
+
 Feel free to customize the sections further depending on additional details or specific project requirements you might have.
+
+
 
 
 
