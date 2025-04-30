@@ -1,3 +1,0 @@
-[submodule "hubv3-gatt-server/bluez_inc"]
-	path = hubv3-gatt-server/bluez_inc
-	url = git@github.com:weliem/bluez_inc.git
