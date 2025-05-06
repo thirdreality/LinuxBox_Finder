@@ -1,3 +1,5 @@
+import 'dart:ffi';
+
 import 'package:flutter/material.dart';
 import '../models/WiFiConnectionStatus.dart';
 import '../models/wifi_network.dart';
@@ -16,6 +18,36 @@ class DeviceControlScreen extends StatefulWidget {
 }
 
 class _DeviceControlScreenState extends State<DeviceControlScreen> with SingleTickerProviderStateMixin {
+  // ...已有字段...
+
+  /// 刷新WiFi状态
+  Future<void> _fetchWiFiStatus() async {
+    setState(() {
+      _isLoading = true;
+    });
+    try {
+      // 这里假设_bleService有获取WiFi状态的方法
+      final status = await _bleService.getWiFiStatus();
+      setState(() {
+        _wifiStatus = status;
+      });
+    } catch (e) {
+      setState(() {
+        _wifiStatus = null;
+      });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('获取WiFi状态失败: $e'), backgroundColor: Colors.red),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
+    }
+  }
   final BleService _bleService = BleService();
   WiFiConnectionStatus? _wifiStatus;
   bool _isLoading = true;
@@ -36,36 +68,9 @@ class _DeviceControlScreenState extends State<DeviceControlScreen> with SingleTi
       }
     });
 
-    _fetchWiFiStatus();
+
   }
 
-  Future<void> _fetchWiFiStatus() async {
-    setState(() {
-      _isLoading = true;
-    });
-
-    try {
-      // Get raw status string from the BLE service
-      final statusString = await _bleService.getWifiStatus();
-
-      print("getWifiStatus() statusString: ${statusString}");
-
-      // Parse the status string into our WiFiConnectionStatus object
-      final status = WiFiConnectionStatus.fromJson(statusString);
-
-      print("Wifi status result: ${status}");
-
-      setState(() {
-        _wifiStatus = status;
-        _isLoading = false;
-      });
-    } catch (e) {
-      setState(() {
-        _wifiStatus = WiFiConnectionStatus.error('Failed to fetch WiFi status: $e');
-        _isLoading = false;
-      });
-    }
-  }
 
   @override
   void dispose() {
@@ -372,7 +377,7 @@ class _WiFiSetupWidgetState extends State<WiFiSetupWidget> {
       final password = _passwordController.text;
 
       // configureWiFi现在返回字符串结果而非布尔值
-      final result = await _bleService.configureWiFi(ssid, password);
+      final result = await _bleService.configureWiFi(ssid, password, false as Bool);
       print("configureWiFi: $result");
 
       // 检查结果是否包含错误信息

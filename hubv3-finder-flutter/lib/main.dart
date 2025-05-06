@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'screens/device_scan_screen.dart';
 import 'screens/device_control_screen.dart';
+import 'screens/home_screen.dart';
 
 void main() {
   runApp(const MyApp());
@@ -18,8 +19,9 @@ class MyApp extends StatelessWidget {
         useMaterial3: true,
       ),
       routes: {
-        '/': (context) => const DeviceScanScreen(),
+        '/': (context) => const HomeScreen(),
         '/device_control': (context) => const DeviceControlScreen(),
+        '/device_scan': (context) => const DeviceScanScreen(),
       },
       initialRoute: '/',
     );

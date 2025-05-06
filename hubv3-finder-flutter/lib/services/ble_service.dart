@@ -12,8 +12,25 @@ import 'package:flutter/foundation.dart';
 import '../models/ble_device.dart';
 import '../models/wifi_network.dart';
 import './http_service.dart';
+import '../models/WiFiConnectionStatus.dart';
 
 class BleService {
+  /// 获取WiFi状态，自动切换HTTP/BLE模式，返回WiFiConnectionStatus
+  Future<WiFiConnectionStatus> getWiFiStatus() async {
+    try {
+      String statusJson;
+      if (_useHttpMode) {
+        // HTTP模式，优先通过REST API获取
+        statusJson = await _httpService.getWifiStatus();
+      } else {
+        // BLE模式，通过BLE特征获取
+        statusJson = await configureWiFi('', '', false as Bool); // 只读状态
+      }
+      return WiFiConnectionStatus.fromJson(statusJson);
+    } catch (e) {
+      return WiFiConnectionStatus.error('获取WiFi状态失败: $e');
+    }
+  }
   // Singleton instance
   static final BleService _instance = BleService._internal();
   factory BleService() => _instance;

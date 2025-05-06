@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import '../models/ble_device.dart';
 import '../services/ble_service.dart';
+import 'provision_screen.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class DeviceScanScreen extends StatefulWidget {
   const DeviceScanScreen({Key? key}) : super(key: key);
@@ -23,16 +25,20 @@ class _DeviceScanScreenState extends State<DeviceScanScreen> {
 
   Future<void> _initializeBle() async {
     final initialized = await _bleService.initialize();
-    setState(() {
-      _isInitialized = initialized;
-    });
+    if (mounted) {
+      setState(() {
+        _isInitialized = initialized;
+      });
+    }
 
     if (_isInitialized) {
       _startScan();
       _bleService.deviceStream.listen((devices) {
-        setState(() {
-          _devices = devices;
-        });
+        if (mounted) {
+          setState(() {
+            _devices = devices;
+          });
+        }
       });
     }
   }
@@ -40,15 +46,19 @@ class _DeviceScanScreenState extends State<DeviceScanScreen> {
   Future<void> _startScan() async {
     if (_isScanning) return;
     
-    setState(() {
-      _isScanning = true;
-    });
+    if (mounted) {
+      setState(() {
+        _isScanning = true;
+      });
+    }
     
     await _bleService.startScan();
     
-    setState(() {
-      _isScanning = false;
-    });
+    if (mounted) {
+      setState(() {
+        _isScanning = false;
+      });
+    }
   }
 
   @override
@@ -120,65 +130,103 @@ class _DeviceScanScreenState extends State<DeviceScanScreen> {
         final device = _devices[index];
         return Card(
           margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-          child: ListTile(
-            leading: Icon(
-              Icons.bluetooth,
-              color: Theme.of(context).colorScheme.primary,
-            ),
-            title: Text(device.name.isEmpty ? 'Unknown Device' : device.name),
-            subtitle: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 4),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
               children: [
-                Text('ID: ${device.id}'),
-                // MAC address is no longer in the device model
-                Text('Signal: ${device.rssi} dBm'),
-              ],
-            ),
-            trailing: ElevatedButton(
-              onPressed: () async {
-                // Show connecting dialog
-                showDialog(
-                  context: context,
-                  barrierDismissible: false,
-                  builder: (context) => const AlertDialog(
-                    title: Text('Connecting'),
-                    content: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        CircularProgressIndicator(),
-                        SizedBox(height: 16),
-                        Text('Connecting to device...'),
-                      ],
+                SizedBox(
+                  height: 48,
+                  child: Center(
+                    child: Icon(
+                      Icons.bluetooth,
+                      color: Theme.of(context).colorScheme.primary,
+                      size: 28,
                     ),
                   ),
-                );
-
-                // Attempt to connect
-                try {
-                  await _bleService.connectToDevice(device.id);
-                  
-                  // Dismiss the dialog
-                  Navigator.pop(context);
-                  
-                  // If we get here, connection was successful
-                  // Navigate to the device control screen
-                  Navigator.pushNamed(context, '/device_control');
-                } catch (e) {
-                  // Dismiss the dialog
-                  Navigator.pop(context);
-                  
-                  // Show error message
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text('Failed to connect: ${e.toString()}'),
-                      backgroundColor: Colors.red,
-                    ),
-                  );
-                }
-              },
-              child: const Text('Connect'),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(device.name.isEmpty ? 'Unknown Device' : device.name,
+                          style: const TextStyle(fontWeight: FontWeight.bold)),
+                      Text('ID: ${device.id}', overflow: TextOverflow.ellipsis, maxLines: 1),
+                      if (device.ipAddress != null && device.ipAddress!.isNotEmpty && device.ipAddress != '0.0.0.0')
+                        Text('IP: ${device.ipAddress}', style: const TextStyle(color: Colors.green)),
+                      Text('Signal: ${device.rssi} dBm'),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                ConstrainedBox(
+                  constraints: const BoxConstraints(minWidth: 60, maxWidth: 100),
+                  child: ElevatedButton(
+                    style: ElevatedButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8)),
+                    onPressed: () async {
+                      final hasIp = device.ipAddress != null && device.ipAddress!.isNotEmpty && device.ipAddress != '0.0.0.0';
+                      if (hasIp) {
+                        showDialog(
+                          context: context,
+                          barrierDismissible: false,
+                          builder: (context) => const AlertDialog(
+                            title: Text('Connecting'),
+                            content: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                CircularProgressIndicator(),
+                                SizedBox(height: 16),
+                                Text('Connecting via HTTP...'),
+                              ],
+                            ),
+                          ),
+                        );
+                        try {
+                          await _bleService.connectToDevice(device.id);
+                          final prefs = await SharedPreferences.getInstance();
+                          await prefs.setString('selected_device_id', device.id);
+                          if (device.ipAddress != null) {
+                            await prefs.setString('selected_device_ip', device.ipAddress!);
+                          }
+                          if (device.name != null) {
+                            await prefs.setString('selected_device_name', device.name!);
+                          }
+                          if (mounted) {
+                            Navigator.pop(context, {
+                              'selected_device_id': device.id,
+                              'selected_device_ip': device.ipAddress,
+                              'selected_device_name': device.name,
+                            });
+                          }
+                        } catch (e) {
+                          if (mounted) Navigator.pop(context);
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text('Failed to connect: ${e.toString()}'),
+                              backgroundColor: Colors.red,
+                            ),
+                          );
+                        }
+                      } else {
+                        final result = await Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => ProvisionScreen(deviceId: device.id),
+                          ),
+                        );
+                        if (result is String && result.isNotEmpty) {
+                          await _bleService.connectToDevice(device.id);
+                          Navigator.pushNamed(context, '/device_control');
+                        }
+                      }
+                    },
+                    child: const Text('Connect'),
+                  ),
+                ),
+              ],
             ),
-            isThreeLine: true,
           ),
         );
       },
