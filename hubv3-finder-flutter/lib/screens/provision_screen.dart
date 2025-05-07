@@ -20,6 +20,32 @@ class ProvisionScreen extends StatefulWidget {
 }
 
 class _ProvisionScreenState extends State<ProvisionScreen> {
+  @override
+  void dispose() {
+    // 离开页面时自动断开蓝牙
+    BleService().disconnect();
+    super.dispose();
+  }
+
+  void _showLoadingDialog(String title) {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) {
+        return AlertDialog(
+          title: Text(title, style: const TextStyle(fontSize: 16)), // 降低字体大小
+          content: Row(
+            children: const [
+              CircularProgressIndicator(),
+              SizedBox(width: 16),
+              Expanded(child: Text('请稍候...')),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
   final _formKey = GlobalKey<FormState>();
   final TextEditingController _passwordController = TextEditingController();
   bool _isLoading = false;
@@ -32,7 +58,10 @@ class _ProvisionScreenState extends State<ProvisionScreen> {
   @override
   void initState() {
     super.initState();
-    _startWiFiScan();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _showLoadingDialog('正在扫描wifi列表');
+      _startWiFiScan();
+    });
   }
 
   Future<void> _startWiFiScan() async {
@@ -70,11 +99,13 @@ class _ProvisionScreenState extends State<ProvisionScreen> {
       );
     } finally {
       setState(() { _isLoading = false; });
+      Navigator.of(context, rootNavigator: true).maybePop(); // 关闭扫描WiFi的Dialog
     }
   }
 
   Future<void> _provision() async {
     if (!_formKey.currentState!.validate()) return;
+    _showLoadingDialog('正在设置wifi配置');
     setState(() {
       _isLoading = true;
       _errorMsg = null;
@@ -123,6 +154,7 @@ class _ProvisionScreenState extends State<ProvisionScreen> {
       setState(() {
         _isLoading = false;
       });
+      Navigator.of(context, rootNavigator: true).maybePop(); // 关闭设置WiFi的Dialog
     }
   }
 
@@ -304,7 +336,7 @@ class _ProvisionScreenState extends State<ProvisionScreen> {
 @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('WiFi 配网'), backgroundColor: Theme.of(context).colorScheme.primary),
+      appBar: AppBar(title: const Text('WiFi Config')),
       body: Padding(
         padding: const EdgeInsets.symmetric(vertical: 16.0, horizontal: 12.0),
         child: _buildWifiWidget(context)

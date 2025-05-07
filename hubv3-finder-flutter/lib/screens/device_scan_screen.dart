@@ -71,8 +71,7 @@ class _DeviceScanScreenState extends State<DeviceScanScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('ThirdReality Hub Finder'),
-        backgroundColor: Theme.of(context).colorScheme.primary,
+        title: const Text('Hub Scan List')
       ),
       body: !_isInitialized
           ? Center(
@@ -184,11 +183,7 @@ class _DeviceScanScreenState extends State<DeviceScanScreen> {
                     // 这里假设WiFi MAC暂不可得，可扩展
                     // 返回首页并刷新
                     if (mounted) {
-                      Navigator.pop(context, {
-                        'selected_device_id': device.id,
-                        'selected_device_ip': device.ipAddress,
-                        'selected_device_name': device.name,
-                      });
+                      Navigator.of(context).pushNamedAndRemoveUntil('/', (route) => false);
                     }
                   } catch (e) {
                     if (mounted) Navigator.pop(context);

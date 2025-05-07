@@ -15,6 +15,8 @@ import './http_service.dart';
 import '../models/WiFiConnectionStatus.dart';
 
 class BleService {
+
+
   // Public getter for discovered devices
   List<BleDevice> get discoveredDevices => _discoveredDevices;
   /// Get WiFi status, automatically switch HTTP/BLE mode, return WiFiConnectionStatus
@@ -172,16 +174,25 @@ class BleService {
   }
 
   // Connect to device
-  Future<BluetoothDevice?> connectToDevice(String deviceId) async {
+  Future<BluetoothDevice?> connectToDevice(String deviceId, {bool enableHttp = true}) async {
     try {
+      // 打印_discoveredDevices内容，便于调试
+      print('_discoveredDevices dump:');
+      for (var device in _discoveredDevices) {
+        print('  ${device.toString()}');
+      }
       // 查找选定的设备
-      BleDevice? selectedDevice = _discoveredDevices.firstWhere(
-        (device) => device.id == deviceId,
-        orElse: () => null as BleDevice,
-      );
+      BleDevice? selectedDevice;
+      for (var device in _discoveredDevices) {
+        if (device.id == deviceId) {
+          selectedDevice = device;
+          break;
+        }
+      }
+
       
       // 检查设备是否有IP地址
-      if (selectedDevice != null && selectedDevice.ipAddress != null) {
+      if (selectedDevice != null && selectedDevice.ipAddress != null && enableHttp) {
         final ip = selectedDevice.ipAddress!;
         if (ip == '0.0.0.0' || ip.isEmpty) {
           print('设备IP地址为0.0.0.0或空，跳过HTTP连接，直接使用蓝牙模式');
@@ -455,6 +466,6 @@ class BleService {
   // Dispose
   void dispose() {
     _deviceStreamController.close();
-    disconnect();
+    BleService().disconnect();
   }
 }

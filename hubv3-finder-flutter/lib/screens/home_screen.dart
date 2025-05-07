@@ -4,6 +4,7 @@ import '../services/http_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/WiFiConnectionStatus.dart';
 import 'device_scan_screen.dart';
+import 'device_detail_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({Key? key}) : super(key: key);
@@ -159,9 +160,9 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
             ),
             IconButton(
-              icon: const Icon(Icons.edit, size: 22),
-              onPressed: _goToScan,
-              tooltip: '更换设备',
+              icon: const Icon(Icons.arrow_forward_ios, size: 22),
+              onPressed: _goToDetail,
+              tooltip: '设备详情',
             ),
           ],
         ),
@@ -169,13 +170,25 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  void _goToDetail() {
+    if (_selectedDeviceId == null || _selectedDeviceIp == null) return;
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => DeviceDetailScreen(
+          deviceId: _selectedDeviceId!,
+          deviceIp: _selectedDeviceIp!,
+          deviceName: _selectedDeviceName,
+        ),
+      ),
+    );
+  }
+
   Widget _buildCommandList() {
     final commands = [
-      {'label': 'Connect to new WIFI', 'command': 'wifi_new_provision', 'icon': Icons.wifi_lock},
       {'label': 'Reboot device', 'command': 'reboot', 'icon': Icons.restart_alt},
       {'label': 'Install Software', 'command': 'install', 'icon': Icons.download},
       {'label': 'Uninstall Software', 'command': 'uninstall', 'icon': Icons.delete},
-      {'label': 'Query Device', 'command': 'query', 'icon': Icons.search},
     ];
     return Card(
       margin: const EdgeInsets.all(16),
@@ -184,7 +197,7 @@ class _HomeScreenState extends State<HomeScreen> {
         children: [
           const Padding(
             padding: EdgeInsets.all(16.0),
-            child: Text('支持的指令', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            child: Text('Tools', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
           ),
           const Divider(),
           ...commands.map((cmd) => ListTile(
@@ -205,7 +218,7 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('首页'), backgroundColor: Theme.of(context).colorScheme.primary),
+      appBar: AppBar(title: const Text('ThirdReality Hub Finder')),
       body: Column(
         children: [
           _buildDeviceCard(),
