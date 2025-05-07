@@ -16,7 +16,6 @@ class _HomeScreenState extends State<HomeScreen> {
   String? _selectedDeviceId;
   String? _selectedDeviceIp;
   String? _selectedDeviceName;
-  String? _selectedWifiMac;
   WiFiConnectionStatus? _wifiStatus;
   bool _loadingDevice = false;
 
@@ -32,14 +31,13 @@ class _HomeScreenState extends State<HomeScreen> {
     _selectedDeviceId = prefs.getString('selected_device_id');
     _selectedDeviceIp = prefs.getString('selected_device_ip');
     _selectedDeviceName = prefs.getString('selected_device_name');
-    _selectedWifiMac = prefs.getString('selected_wifi_mac');
     if (_selectedDeviceIp != null) {
       HttpService().configure(_selectedDeviceIp!);
       try {
-        final wifiStatusJson = await HttpService().getWifiStatus();
+        final wifiStatusJson = await HttpService().getWifiStatus(ltime: 3);
         _wifiStatus = WiFiConnectionStatus.fromJson(wifiStatusJson);
       } catch (e) {
-        _wifiStatus = WiFiConnectionStatus.error('获取WiFi状态失败');
+        _wifiStatus = WiFiConnectionStatus.error('Failed to get WiFi status');
       }
     } else {
       _wifiStatus = null;
@@ -57,7 +55,6 @@ class _HomeScreenState extends State<HomeScreen> {
       _selectedDeviceId = id;
       _selectedDeviceIp = ip;
       _selectedDeviceName = deviceName;
-      _selectedWifiMac = wifiMac;
     });
   }
 
@@ -168,7 +165,7 @@ class _HomeScreenState extends State<HomeScreen> {
             IconButton(
               icon: const Icon(Icons.arrow_forward_ios, size: 22),
               onPressed: _goToDetail,
-              tooltip: '设备详情',
+              tooltip: 'Device Details',
             ),
           ],
         ),
@@ -203,16 +200,32 @@ class _HomeScreenState extends State<HomeScreen> {
         children: [
           const Padding(
             padding: EdgeInsets.all(16.0),
-            child: Text('Tools', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            child: Text('Functions', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
           ),
           const Divider(),
           ...commands.map((cmd) => ListTile(
             leading: Icon(cmd['icon'] as IconData),
             title: Text(cmd['label'] as String),
             onTap: () async {
-              // 这里只做演示，实际应调用BleService/HttpService发送命令
+              if (_wifiStatus == null) {
+                showDialog(
+                  context: context,
+                  builder: (context) => AlertDialog(
+                    title: const Text('Device Unavailable'),
+                    content: const Text('The device is offline or unavailable. Please connect to a device first.'),
+                    actions: [
+                      TextButton(
+                        onPressed: () => Navigator.of(context).pop(),
+                        child: const Text('OK'),
+                      ),
+                    ],
+                  ),
+                );
+                return;
+              }
+              // For demonstration, actually should call BleService/HttpService to send the command
               ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text('已发送指令: ${cmd['label']}')),
+                SnackBar(content: Text('Command sent: ${cmd['label']}')),
               );
             },
           )),

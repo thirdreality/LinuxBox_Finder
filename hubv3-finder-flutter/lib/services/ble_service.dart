@@ -45,7 +45,7 @@ class BleService {
 
   // Service and characteristic UUIDs
   // Use standard UUIDs for GATT attributes
-  static const String CCCD_DESCRIPTOR_UUID = "00002902-0000-1000-8000-00805f9b34fb"; // 标准CCCD描述符UUID
+  static const String CCCD_DESCRIPTOR_UUID = "00002902-0000-1000-8000-00805f9b34fb"; // Standard CCCD descriptor UUID
   static const String SERVICE_UUID = "6e400000-0000-4e98-8024-bc5b71e0893e";
   static const String HUBV3_WIFI_CONFIG_CHAR_UUID = "6e400001-0000-4e98-8024-bc5b71e0893e";
 
@@ -103,15 +103,15 @@ class BleService {
             print('find deviceName $deviceName');
             print('find deviceName: ${result.device.remoteId.str}');
             
-            // 检查制造商数据，尝试提取IP地址
+            // Check manufacturer data, try to extract IP address
             String? ipAddress;
             if (result.advertisementData.manufacturerData.isNotEmpty) {
-              // 制造商ID为0x0133的数据包含IP地址
+              // Manufacturer ID 0x0133 data contains IP address
               final data = result.advertisementData.manufacturerData[0x0133];
               if (data != null && data.length >= 4) {
-                // 提取IP地址，格式为4个字节 [192, 168, 1, 100]
+                // Extract IP address, format is 4 bytes [192, 168, 1, 100]
                 ipAddress = '${data[0]}.${data[1]}.${data[2]}.${data[3]}';
-                print('提取到设备IP地址: $ipAddress');
+                print('Extracted device IP address: $ipAddress');
               }
             }
 
@@ -143,7 +143,7 @@ class BleService {
             // Emit updated list
             _deviceStreamController.add(_discoveredDevices);
 
-            print('find All deviceName: ${_deviceStreamController}');
+            print('find All deviceName: ${_deviceStreamController}'); // Debug: print all found device names
           }
         }
       });
@@ -170,12 +170,12 @@ class BleService {
   // Connect to device
   Future<BluetoothDevice?> connectToDevice(String deviceId, {bool enableHttp = true}) async {
     try {
-      // 打印_discoveredDevices内容，便于调试
+      // Print _discoveredDevices for debugging
       print('_discoveredDevices dump:');
       for (var device in _discoveredDevices) {
         print('  ${device.toString()}');
       }
-      // 查找选定的设备
+      // Find the selected device
       BleDevice? selectedDevice;
       for (var device in _discoveredDevices) {
         if (device.id == deviceId) {
@@ -185,55 +185,55 @@ class BleService {
       }
 
       
-      // 检查设备是否有IP地址
+      // Check if device has IP address
       if (selectedDevice != null && selectedDevice.ipAddress != null && enableHttp) {
         final ip = selectedDevice.ipAddress!;
         if (ip == '0.0.0.0' || ip.isEmpty) {
-          print('设备IP地址为0.0.0.0或空，跳过HTTP连接，直接使用蓝牙模式');
+          print('Device IP address is 0.0.0.0 or empty, skip HTTP connection and use BLE mode directly');
           _useHttpMode = false;
         } else {
-          print('设备有IP地址: $ip，尝试HTTP连接...');
-          // 配置HTTP服务
+          print('Device has IP address: $ip, trying HTTP connection...');
+          // Configure HTTP service
           _httpService.configure(ip);
-          // 检查HTTP连接
+          // Check HTTP connection
           bool httpConnected = await _httpService.checkConnectivity();
           if (httpConnected) {
-            print('HTTP连接成功，将使用HTTP模式');
+            print('HTTP connection successful, will use HTTP mode');
             _useHttpMode = true;
-            // 在HTTP模式下，我们仍然存储原始蓝牙设备引用，但主要使用HTTP服务
+            // In HTTP mode, we still store the original BLE device reference, but mainly use HTTP service
             _connectedDevice = selectedDevice.device;
             return selectedDevice.device;
           } else {
-            print('HTTP连接失败，将使用蓝牙模式');
+            print('HTTP connection failed, will use BLE mode');
             _useHttpMode = false;
             _httpService.clear();
           }
         }
       } else {
-        print('设备没有IP地址，将使用蓝牙模式');
+        print('Device has no IP address, will use BLE mode');
         _useHttpMode = false;
       }
       
-      // 如果HTTP连接失败或设备没有IP地址，则使用蓝牙连接
+      // If HTTP connection fails or device has no IP address, use BLE connection
       BluetoothDevice? device;
 
-      // 首先检查是否已连接
-      print('检查设备是否已连接: $deviceId');
+      // First check if already connected
+      print('Check if device is already connected: $deviceId');
       try {
         List<BluetoothDevice> connectedDevices = await FlutterBluePlus.connectedDevices;
         device = connectedDevices.firstWhere(
               (d) => d.remoteId.str == deviceId,
         );
-        // 如果到达这里，设备已连接
-        print('设备已连接: $deviceId');
+        // If reached here, device is connected
+        print('Device connected: $deviceId');
         _connectedDevice = device;
         return device;
       } catch (e) {
-        // 设备未连接，需要连接
-        print('设备未连接，尝试连接: $deviceId');
+        // Device not connected, need to connect
+        print('Device not connected, trying to connect: $deviceId');
       }
 
-      // 查找要连接的设备
+      // Find the device to connect
       device = null;
       for (BleDevice bleDevice in _discoveredDevices) {
         if (bleDevice.id == deviceId && bleDevice.device != null) {
@@ -243,31 +243,31 @@ class BleService {
       }
 
       if (device == null) {
-        print('找不到设备: $deviceId');
-        throw Exception('找不到设备');
+        print('Device not found: $deviceId');
+        throw Exception('Device not found');
       }
 
-      // 断开之前的连接
+      // Disconnect previous connection
       if (_connectedDevice != null) {
         await disconnect();
       }
 
-      // 连接到设备
-      print('连接到设备: ${device.platformName}');
+      // Connect to device
+      print('Connecting to device: ${device.platformName}');
       await device.connect(timeout: Duration(seconds: 15), autoConnect: false);
       
-      print('设备已连接');
+      print('Device connected');
       _connectedDevice = device;
       return device;
     } catch (e) {
-      print('连接设备时出错: $e');
-      throw Exception('连接设备失败: $e');
+      print('Error connecting to device: $e');
+      throw Exception('Failed to connect to device: $e');
     }
   }
 
-  // 清理JSON字符串，移除非法字符
+  // Clean up JSON string, remove invalid characters
   String _cleanJsonString(String input) {
-    // 寻找第一个{和最后一个}，提取中间内容
+    // Find the first '{' and the last '}', extract the content in between
     int startIndex = input.indexOf('{');
     int endIndex = input.lastIndexOf('}');
 
@@ -275,7 +275,7 @@ class BleService {
       return input.substring(startIndex, endIndex + 1);
     }
 
-    // 如果没有找到完整的JSON结构，返回原字符串
+    // If a complete JSON structure is not found, return the original string
     return input;
   }
 
@@ -283,12 +283,12 @@ class BleService {
   Future<String> configureWiFi(String ssid, String password, bool restore) async {
     String defaultResult = '{"connected":false, "ip_address":""}';
     try {
-      // 检查是否使用HTTP模式
+      // Check if HTTP mode is used
       if (_useHttpMode) {
         return defaultResult;
       }
       
-      print('使用蓝牙模式配置WiFi');
+      print('Configuring WiFi using BLE mode');
       
       if (_connectedDevice == null) {
         throw Exception('Not connected to any device');
@@ -315,52 +315,52 @@ class BleService {
       };
 
       String jsonPayload = jsonEncode(payload);
-      print('发送WiFi配置: $jsonPayload');
+      print('Sending WiFi config: $jsonPayload');
 
-      // 创建一个Completer来等待响应
+      // Create a Completer to wait for response
       Completer<String> completer = Completer<String>();
       StreamSubscription<List<int>>? subscription;
 
-      // 设置超时
+      // Set timeout
       Timer timer = Timer(const Duration(seconds: 10), () {
         if (!completer.isCompleted) {
           subscription?.cancel();
           completer.complete(defaultResult);
-          print('获取WiFi设置结果超时，返回默认状态');
+          print('Timeout getting WiFi config result, returning default state');
         }
       });
 
-      // 监听indicate通知
+      // Listen to indicate notification
       subscription = wifiConfigChar.onValueReceived.listen((value) {
-        print('收到WiFi设置结果通知: ${value.length} 字节');
+        print('Received WiFi config result notification: ${value.length} bytes');
 
-        // 解码并清理字符串
+        // Decode and clean up string
         String rawString = utf8.decode(value);
-        print('原始WiFi设置结果字符串: $rawString');
+        print('Raw WiFi config result string: $rawString');
 
-        // 清理字符串，只保留JSON部分
+        // Clean up string, keep only JSON part
         String resultString = _cleanJsonString(rawString);
-        print('清理后的WiFi状态字符串: $resultString');
+        print('Cleaned WiFi status string: $resultString');
 
-        // 验证JSON有效性
+        // Validate JSON
         try {
           jsonDecode(resultString);
-          print('WiFi状态JSON有效');
+          print('WiFi status JSON valid');
         } catch (e) {
-          print('WiFi状态JSON无效: $e');
+          print('WiFi status JSON invalid: $e');
           resultString = defaultResult;
         }
 
-        // 取消订阅和定时器
+        // Cancel subscription and timer
         subscription?.cancel();
         timer.cancel();
 
-        // 完成Completer
+        // Complete Completer
         if (!completer.isCompleted) {
           completer.complete(resultString);
         }
       }, onError: (error) {
-        print('WiFi设置通知错误: $error');
+        print('WiFi config notification error: $error');
         if (!completer.isCompleted) {
           completer.complete(defaultResult);
         }
@@ -368,42 +368,42 @@ class BleService {
         timer.cancel();
       });
 
-      // 开启indicate
+      // Enable indicate
       try {
         await wifiConfigChar.setNotifyValue(true);
-        print('已开启WiFi设置通知');
+        print('WiFi config notification enabled');
 
-        // 可能需要主动请求一次状态
+        // May need to actively request status once
         if (wifiConfigChar.properties.write) {
           try {
             await wifiConfigChar.write(utf8.encode(jsonPayload));
-            print('已发送WiFi设置请求');
+            print('WiFi config request sent');
           } catch (e) {
-            print('发送WiFi设置请求失败: $e');
+            print('Failed to send WiFi config request: $e');
           }
         }
 
-        // 等待通知结果或超时
+        // Wait for notification result or timeout
         final result = await completer.future;
 
-        // 完成后关闭通知
+        // Close notification after completion
         try {
           await wifiConfigChar.setNotifyValue(false);
-          print('已关闭WiFi设置结果通知');
+          print('WiFi config result notification closed');
         } catch (e) {
-          print('关闭通知失败: $e');
+          print('Failed to close notification: $e');
         }
 
         return result;
       } catch (e) {
         subscription?.cancel();
         timer.cancel();
-        print('WiFi设置结果通知设置失败: $e');
+        print('Failed to set WiFi config result notification: $e');
         return defaultResult;
       }
 
     } catch (e) {
-      print('配置WiFi失败: $e');
+      print('Failed to configure WiFi: $e');
       return defaultResult;
     }
   }
@@ -411,15 +411,15 @@ class BleService {
   // Delete WiFi networks
   Future<String> deleteWiFiNetworks() async {
     try {
-      // 检查是否使用HTTP模式
+      // Check if HTTP mode is used
       if (_useHttpMode) {
-        print('使用HTTP模式删除WiFi网络');
+        print('Deleting WiFi network using HTTP mode');
         await _httpService.deleteWiFiNetworks();
       }
 
       throw Exception('Not connected to any device');
     } catch (e) {
-      print('删除WiFi网络失败: $e');
+      print('Failed to delete WiFi network: $e');
       return 'Error: $e';
     }
   }
@@ -427,31 +427,31 @@ class BleService {
   // Send command
   Future<String> sendCommand(String command) async {
     try {
-      // 检查是否使用HTTP模式
+      // Check if HTTP mode is used
       if (_useHttpMode) {
-        print('使用HTTP模式发送命令');
+        print('Send command using HTTP mode');
         return await _httpService.sendCommand(command);
       }
 
       throw Exception('Not connected to any device');
     } catch (e) {
-      print('发送命令失败: $e');
+      print('Failed to send command: $e');
       return 'Error: $e';
     }
   }
 
   // Disconnect from device
   Future<void> disconnect() async {
-    // 清除HTTP模式
+    // Clear HTTP mode
     _useHttpMode = false;
     _httpService.clear();
     
     if (_connectedDevice != null) {
       try {
         await _connectedDevice!.disconnect();
-        print('已断开连接');
+        print('Disconnected');
       } catch (e) {
-        print('断开连接时出错: $e');
+        print('Error when disconnecting: $e');
       }
       _connectedDevice = null;
     }

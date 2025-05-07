@@ -102,10 +102,10 @@ class _DeviceScanScreenState extends State<DeviceScanScreen> {
   }
 
   void _onConnectToDevice(BleDevice device) async {
-    // 判断是否有IP地址且不为0
+    // Check if there is an IP address and it is not 0
     final hasIp = device.ipAddress != null && device.ipAddress!.isNotEmpty && device.ipAddress != '0.0.0.0';
     if (hasIp) {
-      // HTTP模式，直接配置HTTP Service并跳转控制页
+      // HTTP mode, directly configure HTTP Service and navigate to control page
       showDialog(
         context: context,
         barrierDismissible: false,
@@ -123,7 +123,7 @@ class _DeviceScanScreenState extends State<DeviceScanScreen> {
       );
       try {
         await _bleService.connectToDevice(device.id);
-        // 保存设备信息到SharedPreferences
+        // Save device information to SharedPreferences
         print('device.id = $device.id');
         print('device.ipAddress = $device.ipAddress');
         print('device.name = $device.name');
@@ -136,8 +136,8 @@ class _DeviceScanScreenState extends State<DeviceScanScreen> {
         if (device.name != null) {
           await prefs.setString('selected_device_name', device.name!);
         }
-        // 这里假设WiFi MAC暂不可得，可扩展
-        // 返回首页并刷新
+        // WiFi MAC is not available for now, can be extended
+        // Return to home page and refresh
         if (mounted) {
           Navigator.of(context).pushNamedAndRemoveUntil('/', (route) => false);
         }
@@ -151,21 +151,21 @@ class _DeviceScanScreenState extends State<DeviceScanScreen> {
         );
       }
     } else {
-      // 先连接蓝牙，确保进入配网页面时BLE已连接
+      // Connect BLE first, ensure BLE is connected before entering provisioning page
       try {
         await _bleService.connectToDevice(device.id);
-        // 连接成功后跳转到ProvisionScreen
+        // After successful connection, navigate to ProvisionScreen
         final result = await Navigator.push(
           context,
           MaterialPageRoute(
             builder: (context) => ProvisionScreen(deviceId: device.id),
           ),
         );
-        // 配网成功，保存信息和跳转逻辑已在provision_screen处理，这里无需跳转
+        // Provisioning success, saving info and navigation logic handled in provision_screen, no need to navigate here
       } catch (e) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('蓝牙连接失败: ${e.toString()}'),
+            content: Text('BLE connection failed: ${e.toString()}'),
             backgroundColor: Colors.red,
           ),
         );

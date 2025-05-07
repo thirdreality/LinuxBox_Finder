@@ -25,7 +25,7 @@ class HttpService {
   }
 
   // Get WiFi Status
-  Future<String> getWifiStatus() async {
+  Future<String> getWifiStatus({int ltime = 10}) async {
     if (_baseUrl == null) {
       throw Exception('HTTP Service not configured with a device IP');
     }
@@ -33,7 +33,7 @@ class HttpService {
     try {
       final response = await http.get(
         Uri.parse('$_baseUrl/api/wifi/status'),
-      ).timeout(const Duration(seconds: 10));
+      ).timeout(Duration(seconds: ltime));
 
       if (response.statusCode == 200) {
         return response.body;
