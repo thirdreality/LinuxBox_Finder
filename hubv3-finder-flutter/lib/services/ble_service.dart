@@ -15,20 +15,22 @@ import './http_service.dart';
 import '../models/WiFiConnectionStatus.dart';
 
 class BleService {
-  /// 获取WiFi状态，自动切换HTTP/BLE模式，返回WiFiConnectionStatus
+  // Public getter for discovered devices
+  List<BleDevice> get discoveredDevices => _discoveredDevices;
+  /// Get WiFi status, automatically switch HTTP/BLE mode, return WiFiConnectionStatus
   Future<WiFiConnectionStatus> getWiFiStatus() async {
     try {
       String statusJson;
       if (_useHttpMode) {
-        // HTTP模式，优先通过REST API获取
+        // HTTP mode, get via REST API first
         statusJson = await _httpService.getWifiStatus();
       } else {
-        // BLE模式，通过BLE特征获取
-        statusJson = await configureWiFi('', '', false as Bool); // 只读状态
+        // BLE mode, get via BLE characteristic
+        statusJson = await configureWiFi('', '', false); // Read-only status
       }
       return WiFiConnectionStatus.fromJson(statusJson);
     } catch (e) {
-      return WiFiConnectionStatus.error('获取WiFi状态失败: $e');
+      return WiFiConnectionStatus.error('Failed to get WiFi status: $e');
     }
   }
   // Singleton instance
@@ -180,22 +182,27 @@ class BleService {
       
       // 检查设备是否有IP地址
       if (selectedDevice != null && selectedDevice.ipAddress != null) {
-        print('设备有IP地址: ${selectedDevice.ipAddress}，尝试HTTP连接...');
-        // 配置HTTP服务
-        _httpService.configure(selectedDevice.ipAddress!);
-        
-        // 检查HTTP连接
-        bool httpConnected = await _httpService.checkConnectivity();
-        if (httpConnected) {
-          print('HTTP连接成功，将使用HTTP模式');
-          _useHttpMode = true;
-          // 在HTTP模式下，我们仍然存储原始蓝牙设备引用，但主要使用HTTP服务
-          _connectedDevice = selectedDevice.device;
-          return selectedDevice.device;
-        } else {
-          print('HTTP连接失败，将使用蓝牙模式');
+        final ip = selectedDevice.ipAddress!;
+        if (ip == '0.0.0.0' || ip.isEmpty) {
+          print('设备IP地址为0.0.0.0或空，跳过HTTP连接，直接使用蓝牙模式');
           _useHttpMode = false;
-          _httpService.clear();
+        } else {
+          print('设备有IP地址: $ip，尝试HTTP连接...');
+          // 配置HTTP服务
+          _httpService.configure(ip);
+          // 检查HTTP连接
+          bool httpConnected = await _httpService.checkConnectivity();
+          if (httpConnected) {
+            print('HTTP连接成功，将使用HTTP模式');
+            _useHttpMode = true;
+            // 在HTTP模式下，我们仍然存储原始蓝牙设备引用，但主要使用HTTP服务
+            _connectedDevice = selectedDevice.device;
+            return selectedDevice.device;
+          } else {
+            print('HTTP连接失败，将使用蓝牙模式');
+            _useHttpMode = false;
+            _httpService.clear();
+          }
         }
       } else {
         print('设备没有IP地址，将使用蓝牙模式');
@@ -268,7 +275,7 @@ class BleService {
   }
 
   // Configure WiFi
-  Future<String> configureWiFi(String ssid, String password, Bool restore) async {
+  Future<String> configureWiFi(String ssid, String password, bool restore) async {
     String defaultResult = '{"connected":false, "ip_address":""}';
     try {
       // 检查是否使用HTTP模式
@@ -314,17 +321,17 @@ class BleService {
         if (!completer.isCompleted) {
           subscription?.cancel();
           completer.complete(defaultResult);
-          print('获取WiFi状态超时，返回默认状态');
+          print('获取WiFi设置结果超时，返回默认状态');
         }
       });
 
       // 监听indicate通知
       subscription = wifiConfigChar.onValueReceived.listen((value) {
-        print('收到WiFi状态通知: ${value.length} 字节');
+        print('收到WiFi设置结果通知: ${value.length} 字节');
 
         // 解码并清理字符串
         String rawString = utf8.decode(value);
-        print('原始WiFi状态字符串: $rawString');
+        print('原始WiFi设置结果字符串: $rawString');
 
         // 清理字符串，只保留JSON部分
         String resultString = _cleanJsonString(rawString);
@@ -348,7 +355,7 @@ class BleService {
           completer.complete(resultString);
         }
       }, onError: (error) {
-        print('WiFi状态通知错误: $error');
+        print('WiFi设置通知错误: $error');
         if (!completer.isCompleted) {
           completer.complete(defaultResult);
         }
@@ -359,15 +366,15 @@ class BleService {
       // 开启indicate
       try {
         await wifiConfigChar.setNotifyValue(true);
-        print('已开启WiFi状态通知');
+        print('已开启WiFi设置通知');
 
         // 可能需要主动请求一次状态
         if (wifiConfigChar.properties.write) {
           try {
-            await wifiConfigChar.write(utf8.encode('GET_STATUS'));
-            print('已发送状态请求');
+            await wifiConfigChar.write(utf8.encode(jsonPayload));
+            print('已发送WiFi设置请求');
           } catch (e) {
-            print('发送状态请求失败: $e');
+            print('发送WiFi设置请求失败: $e');
           }
         }
 
@@ -377,7 +384,7 @@ class BleService {
         // 完成后关闭通知
         try {
           await wifiConfigChar.setNotifyValue(false);
-          print('已关闭WiFi状态通知');
+          print('已关闭WiFi设置结果通知');
         } catch (e) {
           print('关闭通知失败: $e');
         }
@@ -386,7 +393,7 @@ class BleService {
       } catch (e) {
         subscription?.cancel();
         timer.cancel();
-        print('WiFi状态通知设置失败: $e');
+        print('WiFi设置结果通知设置失败: $e');
         return defaultResult;
       }
 

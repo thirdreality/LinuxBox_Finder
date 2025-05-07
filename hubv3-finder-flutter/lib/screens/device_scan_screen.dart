@@ -130,103 +130,100 @@ class _DeviceScanScreenState extends State<DeviceScanScreen> {
         final device = _devices[index];
         return Card(
           margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 4),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.center,
+          child: ListTile(
+            leading: Icon(
+              Icons.bluetooth,
+              color: Theme.of(context).colorScheme.primary,
+            ),
+            title: Text(device.name.isEmpty ? 'Unknown Device' : device.name),
+            subtitle: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                SizedBox(
-                  height: 48,
-                  child: Center(
-                    child: Icon(
-                      Icons.bluetooth,
-                      color: Theme.of(context).colorScheme.primary,
-                      size: 28,
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(device.name.isEmpty ? 'Unknown Device' : device.name,
-                          style: const TextStyle(fontWeight: FontWeight.bold)),
-                      Text('ID: ${device.id}', overflow: TextOverflow.ellipsis, maxLines: 1),
-                      if (device.ipAddress != null && device.ipAddress!.isNotEmpty && device.ipAddress != '0.0.0.0')
-                        Text('IP: ${device.ipAddress}', style: const TextStyle(color: Colors.green)),
-                      Text('Signal: ${device.rssi} dBm'),
-                    ],
-                  ),
-                ),
-                const SizedBox(width: 8),
-                ConstrainedBox(
-                  constraints: const BoxConstraints(minWidth: 60, maxWidth: 100),
-                  child: ElevatedButton(
-                    style: ElevatedButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8)),
-                    onPressed: () async {
-                      final hasIp = device.ipAddress != null && device.ipAddress!.isNotEmpty && device.ipAddress != '0.0.0.0';
-                      if (hasIp) {
-                        showDialog(
-                          context: context,
-                          barrierDismissible: false,
-                          builder: (context) => const AlertDialog(
-                            title: Text('Connecting'),
-                            content: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                CircularProgressIndicator(),
-                                SizedBox(height: 16),
-                                Text('Connecting via HTTP...'),
-                              ],
-                            ),
-                          ),
-                        );
-                        try {
-                          await _bleService.connectToDevice(device.id);
-                          final prefs = await SharedPreferences.getInstance();
-                          await prefs.setString('selected_device_id', device.id);
-                          if (device.ipAddress != null) {
-                            await prefs.setString('selected_device_ip', device.ipAddress!);
-                          }
-                          if (device.name != null) {
-                            await prefs.setString('selected_device_name', device.name!);
-                          }
-                          if (mounted) {
-                            Navigator.pop(context, {
-                              'selected_device_id': device.id,
-                              'selected_device_ip': device.ipAddress,
-                              'selected_device_name': device.name,
-                            });
-                          }
-                        } catch (e) {
-                          if (mounted) Navigator.pop(context);
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              content: Text('Failed to connect: ${e.toString()}'),
-                              backgroundColor: Colors.red,
-                            ),
-                          );
-                        }
-                      } else {
-                        final result = await Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (context) => ProvisionScreen(deviceId: device.id),
-                          ),
-                        );
-                        if (result is String && result.isNotEmpty) {
-                          await _bleService.connectToDevice(device.id);
-                          Navigator.pushNamed(context, '/device_control');
-                        }
-                      }
-                    },
-                    child: const Text('Connect'),
-                  ),
-                ),
+                Text('ID: ${device.id}'),
+                if (device.ipAddress != null && device.ipAddress!.isNotEmpty && device.ipAddress != '0.0.0.0')
+                  Text('IP: ${device.ipAddress}', style: const TextStyle(color: Colors.green)),
+                Text('Signal: ${device.rssi} dBm'),
               ],
             ),
+            trailing: ElevatedButton(
+              onPressed: () async {
+                // 判断是否有IP地址且不为0
+                final hasIp = device.ipAddress != null && device.ipAddress!.isNotEmpty && device.ipAddress != '0.0.0.0';
+                if (hasIp) {
+                  // HTTP模式，直接配置HTTP Service并跳转控制页
+                  showDialog(
+                    context: context,
+                    barrierDismissible: false,
+                    builder: (context) => const AlertDialog(
+                      title: Text('Connecting'),
+                      content: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          CircularProgressIndicator(),
+                          SizedBox(height: 16),
+                          Text('Connecting via HTTP...'),
+                        ],
+                      ),
+                    ),
+                  );
+                  try {
+                    await _bleService.connectToDevice(device.id);
+                    // 保存设备信息到SharedPreferences
+                    print('device.id = $device.id');
+                    print('device.ipAddress = $device.ipAddress');
+                    print('device.name = $device.name');
+
+                    final prefs = await SharedPreferences.getInstance();
+                    await prefs.setString('selected_device_id', device.id);
+                    if (device.ipAddress != null) {
+                      await prefs.setString('selected_device_ip', device.ipAddress!);
+                    }
+                    if (device.name != null) {
+                      await prefs.setString('selected_device_name', device.name!);
+                    }
+                    // 这里假设WiFi MAC暂不可得，可扩展
+                    // 返回首页并刷新
+                    if (mounted) {
+                      Navigator.pop(context, {
+                        'selected_device_id': device.id,
+                        'selected_device_ip': device.ipAddress,
+                        'selected_device_name': device.name,
+                      });
+                    }
+                  } catch (e) {
+                    if (mounted) Navigator.pop(context);
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('Failed to connect: ${e.toString()}'),
+                        backgroundColor: Colors.red,
+                      ),
+                    );
+                  }
+                } else {
+                  // 先连接蓝牙，确保进入配网页面时BLE已连接
+                  try {
+                    await _bleService.connectToDevice(device.id);
+                    // 连接成功后跳转到ProvisionScreen
+                    final result = await Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => ProvisionScreen(deviceId: device.id),
+                      ),
+                    );
+                    // 配网成功，保存信息和跳转逻辑已在provision_screen处理，这里无需跳转
+                  } catch (e) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('蓝牙连接失败: ${e.toString()}'),
+                        backgroundColor: Colors.red,
+                      ),
+                    );
+                  }
+                }
+              },
+              child: const Text('Connect'),
+            ),
+            isThreeLine: true,
           ),
         );
       },

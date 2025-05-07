@@ -66,17 +66,28 @@ class _HomeScreenState extends State<HomeScreen> {
       context,
       MaterialPageRoute(builder: (context) => const DeviceScanScreen()),
     );
-    // 处理扫描页返回的设备信息并刷新
+    // Handle the returned device info from scan page and refresh
     if (result is Map && result['selected_device_id'] != null) {
       await _loadSelectedDevice();
-    } else {
-      _loadSelectedDevice();
     }
+    // If result is not a valid selection, do not refresh device info
   }
 
   Widget _buildDeviceCard() {
     if (_loadingDevice) {
-      return const Center(child: CircularProgressIndicator());
+      return Card(
+        margin: const EdgeInsets.all(16),
+        child: SizedBox(
+          height: 120,
+          child: Center(
+            child: SizedBox(
+              width: 48,
+              height: 48,
+              child: CircularProgressIndicator(strokeWidth: 5),
+            ),
+          ),
+        ),
+      );
     }
     if (_selectedDeviceId == null || _selectedDeviceIp == null) {
       return GestureDetector(
@@ -88,7 +99,7 @@ class _HomeScreenState extends State<HomeScreen> {
             height: 120,
             child: Center(
               child: Text(
-                '添加设备',
+                'Add Device',
                 style: TextStyle(fontSize: 20, color: Colors.blue),
               ),
             ),
@@ -110,7 +121,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    '已选设备：',
+                    'Selected Device:',
                     style: TextStyle(fontSize: 15, color: Colors.grey[700]),
                   ),
                   const SizedBox(height: 4),
@@ -130,11 +141,11 @@ class _HomeScreenState extends State<HomeScreen> {
                       child: Row(
                         children: [
                           Text(
-                            '设备状态: ',
+                            'Device Status: ',
                             style: const TextStyle(fontSize: 14),
                           ),
                           Text(
-                            _wifiStatus!.isConnected ? '在线' : '离线/不可用',
+                            _wifiStatus!.isConnected ? 'Online' : 'Offline/Unavailable',
                             style: TextStyle(
                               fontSize: 14,
                               color: _wifiStatus!.isConnected ? Colors.green : Colors.red,
@@ -160,6 +171,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Widget _buildCommandList() {
     final commands = [
+      {'label': 'Connect to new WIFI', 'command': 'wifi_new_provision', 'icon': Icons.wifi_lock},
       {'label': 'Reboot device', 'command': 'reboot', 'icon': Icons.restart_alt},
       {'label': 'Install Software', 'command': 'install', 'icon': Icons.download},
       {'label': 'Uninstall Software', 'command': 'uninstall', 'icon': Icons.delete},
