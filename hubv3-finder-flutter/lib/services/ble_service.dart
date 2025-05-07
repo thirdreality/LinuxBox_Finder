@@ -1,16 +1,10 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:ffi';
-import 'dart:typed_data';
 
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:permission_handler/permission_handler.dart';
-import 'package:crypto/crypto.dart';
-import 'package:flutter/services.dart';
-import 'package:flutter/foundation.dart';
 
 import '../models/ble_device.dart';
-import '../models/wifi_network.dart';
 import './http_service.dart';
 import '../models/WiFiConnectionStatus.dart';
 

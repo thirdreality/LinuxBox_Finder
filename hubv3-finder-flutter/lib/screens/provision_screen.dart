@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'dart:ffi';
 
 import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -20,30 +19,42 @@ class ProvisionScreen extends StatefulWidget {
 }
 
 class _ProvisionScreenState extends State<ProvisionScreen> {
+  bool _dialogOpen = false;
+
   @override
   void dispose() {
-    // 离开页面时自动断开蓝牙
+    // Disconnect BLE when leaving the page
     BleService().disconnect();
     super.dispose();
   }
 
   void _showLoadingDialog(String title) {
+    _dialogOpen = true;
     showDialog(
       context: context,
       barrierDismissible: false,
       builder: (context) {
         return AlertDialog(
-          title: Text(title, style: const TextStyle(fontSize: 16)), // 降低字体大小
+          title: Text(title, style: const TextStyle(fontSize: 16)), // Smaller font size
           content: Row(
             children: const [
               CircularProgressIndicator(),
               SizedBox(width: 16),
-              Expanded(child: Text('请稍候...')),
+              Expanded(child: Text('Please wait...')),
             ],
           ),
         );
       },
-    );
+    ).then((_) {
+      _dialogOpen = false;
+    });
+  }
+
+  void _closeDialogIfOpen() {
+    if (_dialogOpen && mounted && Navigator.of(context, rootNavigator: true).canPop()) {
+      Navigator.of(context, rootNavigator: true).pop();
+      _dialogOpen = false;
+    }
   }
 
   final _formKey = GlobalKey<FormState>();
@@ -51,7 +62,6 @@ class _ProvisionScreenState extends State<ProvisionScreen> {
   bool _isLoading = false;
   bool _showManualSsidInput = false;
   bool _obscurePassword = true;
-  String? _errorMsg;
   List<WiFiNetwork> _wifiNetworks = [];
   String? _selectedSSID;
 
@@ -59,7 +69,7 @@ class _ProvisionScreenState extends State<ProvisionScreen> {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _showLoadingDialog('正在扫描wifi列表');
+      _showLoadingDialog('Scanning WiFi list...');
       _startWiFiScan();
     });
   }
@@ -85,12 +95,15 @@ class _ProvisionScreenState extends State<ProvisionScreen> {
       await Future.delayed(const Duration(seconds: 3));
       final accessPoints = await WiFiScan.instance.getScannedResults();
       setState(() {
-        _wifiNetworks = accessPoints.map((ap) => WiFiNetwork(
-          ssid: ap.ssid,
-          signalStrength: ap.level,
-          isSecured: ap.capabilities.contains('WPA') || ap.capabilities.contains('WEP'),
-          bssid: ap.bssid,
-        )).toList();
+        _wifiNetworks = accessPoints
+            .where((ap) => ap.ssid.isNotEmpty)
+            .map((ap) => WiFiNetwork(
+              ssid: ap.ssid,
+              signalStrength: ap.level,
+              isSecured: ap.capabilities.contains('WPA') || ap.capabilities.contains('WEP'),
+              bssid: ap.bssid,
+            ))
+            .toList();
         _wifiNetworks.sort((a, b) => b.signalStrength.compareTo(a.signalStrength));
       });
     } catch (e) {
@@ -99,16 +112,15 @@ class _ProvisionScreenState extends State<ProvisionScreen> {
       );
     } finally {
       setState(() { _isLoading = false; });
-      Navigator.of(context, rootNavigator: true).maybePop(); // 关闭扫描WiFi的Dialog
+      _closeDialogIfOpen(); // Close the WiFi scan dialog
     }
   }
 
   Future<void> _provision() async {
     if (!_formKey.currentState!.validate()) return;
-    _showLoadingDialog('正在设置wifi配置');
+    _showLoadingDialog('Setting WiFi configuration...');
     setState(() {
       _isLoading = true;
-      _errorMsg = null;
     });
     try {
       // Call BLE provisioning interface with restore=false
@@ -127,7 +139,7 @@ class _ProvisionScreenState extends State<ProvisionScreen> {
         // Get current device name (optional, retrieve from BLEService or pass it)
         String? deviceName;
         try {
-          // Use singleton instance to access discovered devices
+           // Use singleton instance to access discovered devices
           final devices = BleService().discoveredDevices;
           final match = devices.firstWhereOrNull((d) => d.id == widget.deviceId);
           if (match != null && match.name != null) {
@@ -135,26 +147,26 @@ class _ProvisionScreenState extends State<ProvisionScreen> {
             await prefs.setString('selected_device_name', deviceName!);
           }
         } catch (_) {}
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('配网成功，正在跳转...'), backgroundColor: Colors.green));
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Provisioning successful, redirecting...'), backgroundColor: Colors.green));
         await Future.delayed(const Duration(seconds: 1));
         if (mounted) {
           Navigator.of(context).pushNamedAndRemoveUntil('/', (route) => false);
         }
       } else {
-        setState(() {
-          _errorMsg = '配网失败，请重试';
-        });
+        // setState(() {
+        //   _errorMsg = 'Provisioning failed, please try again';
+        // });
       }
     } catch (e) {
-      print('Error Config Wifi networks: $e');
-      setState(() {
-        _errorMsg = '配网异常: $e';
-      });
+      print('Error configuring WiFi networks: $e');
+      // setState(() {
+      //   _errorMsg = 'Provisioning error: $e';
+      // });
     } finally {
       setState(() {
         _isLoading = false;
       });
-      Navigator.of(context, rootNavigator: true).maybePop(); // 关闭设置WiFi的Dialog
+      _closeDialogIfOpen(); // Close the WiFi configuration dialog
     }
   }
 
@@ -203,9 +215,13 @@ class _ProvisionScreenState extends State<ProvisionScreen> {
                                     value: _selectedSSID,
                                     isExpanded: true,
                                     decoration: const InputDecoration(labelText: 'WiFi SSID'),
-                                    items: _wifiNetworks.map((network) {
+                                    items: _wifiNetworks
+                                        .map((network) => network.ssid)
+                                        .toSet() // Ensure SSID uniqueness
+                                        .map((ssid) {
+                                      final network = _wifiNetworks.firstWhere((n) => n.ssid == ssid);
                                       return DropdownMenuItem<String>(
-                                        value: network.ssid,
+                                        value: ssid,
                                         child: Row(
                                           children: [
                                             Icon(
@@ -259,8 +275,8 @@ class _ProvisionScreenState extends State<ProvisionScreen> {
                                 });
                               },
                               validator: (value) {
-                                if (_showManualSsidInput && (value == null || value.isEmpty)) {
-                                  return 'Please enter an SSID';
+                                if (value == null || value.isEmpty) {
+                                  return 'Please enter the SSID';
                                 }
                                 return null;
                               },
@@ -288,7 +304,7 @@ class _ProvisionScreenState extends State<ProvisionScreen> {
                           TextFormField(
                             controller: _passwordController,
                             decoration: InputDecoration(
-                              labelText: 'Password',
+                              labelText: 'WiFi Password',
                               prefixIcon: const Icon(Icons.lock),
                               suffixIcon: IconButton(
                                 icon: Icon(
@@ -319,10 +335,6 @@ class _ProvisionScreenState extends State<ProvisionScreen> {
                               ),
                             ],
                           ),
-                          if (_errorMsg != null) ...[
-                            const SizedBox(height: 16),
-                            Text(_errorMsg!, style: const TextStyle(color: Colors.red)),
-                          ],
                         ],
                       ),
                     ),
@@ -330,19 +342,17 @@ class _ProvisionScreenState extends State<ProvisionScreen> {
                 ),
               ],
             ),
-          );
+           );
   }
 
-@override
+  @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('WiFi Config')),
+      appBar: AppBar(title: const Text('WiFi Configuration')),
       body: Padding(
         padding: const EdgeInsets.symmetric(vertical: 16.0, horizontal: 12.0),
-        child: _buildWifiWidget(context)
+        child: _buildWifiWidget(context),
       ),
     );
   }
-
 }
-

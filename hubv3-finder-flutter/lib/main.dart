@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'screens/device_scan_screen.dart';
 import 'screens/home_screen.dart';
 
 void main() {

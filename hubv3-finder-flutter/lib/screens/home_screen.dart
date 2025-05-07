@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import '../services/ble_service.dart';
 import '../services/http_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/WiFiConnectionStatus.dart';
@@ -99,9 +98,16 @@ class _HomeScreenState extends State<HomeScreen> {
           child: SizedBox(
             height: 120,
             child: Center(
-              child: Text(
-                'Add Device',
-                style: TextStyle(fontSize: 20, color: Colors.blue),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: const [
+                  Icon(Icons.add_circle_outline, color: Colors.blue, size: 28),
+                  SizedBox(width: 8),
+                  Text(
+                    'Add Device',
+                    style: TextStyle(fontSize: 20, color: Colors.blue),
+                  ),
+                ],
               ),
             ),
           ),

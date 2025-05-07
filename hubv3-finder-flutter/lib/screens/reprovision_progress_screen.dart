@@ -22,11 +22,11 @@ class _ReprovisionProgressScreenState extends State<ReprovisionProgressScreen> {
   bool _bleConnected = false;
 
   final List<String> _steps = [
-    '1. 检查设备是否在线',
-    '2. WIFI设置的准备工作',
-    '3. 扫描附近BLE设备',
-    '4. 连接当前选中的BLE设备',
-    '5. 跳转配网页面',
+    '1. Check if device is online',
+    '2. Prepare WiFi settings',
+    '3. Scan for nearby devices',
+    '4. Connect to selected device',
+    '5. Navigate to provisioning page',
   ];
 
   @override
@@ -37,7 +37,7 @@ class _ReprovisionProgressScreenState extends State<ReprovisionProgressScreen> {
 
   Future<void> _startReprovision() async {
     setState(() { _step = 0; _errorMsg = null; });
-    // 1. 检查设备是否在线
+    // 1. Check if device is online
     bool isOnline = false;
     try {
       final httpService = HttpService();
@@ -45,10 +45,10 @@ class _ReprovisionProgressScreenState extends State<ReprovisionProgressScreen> {
       isOnline = await httpService.checkConnectivity();
       setState(() { _step = 1; });
     } catch (e) {
-      setState(() { _errorMsg = '检查设备在线状态失败: $e'; });
+      setState(() { _errorMsg = 'Failed to check device online status: $e'; });
       return;
     }
-    // 2. WIFI设置的准备工作
+    // 2. Prepare WiFi settings
     if (isOnline) {
       try {
         setState(() { _step = 2; });
@@ -57,32 +57,32 @@ class _ReprovisionProgressScreenState extends State<ReprovisionProgressScreen> {
         if (json['success'] == true) {
           _restoreResult = json['restore']?.toString();
         } else {
-          setState(() { _errorMsg = '设备未响应或失败'; });
+          setState(() { _errorMsg = 'Device did not respond or failed'; });
           return;
         }
       } catch (e) {
-        setState(() { _errorMsg = 'WIFI设置准备失败: $e'; });
+        setState(() { _errorMsg = 'WiFi preparation failed: $e'; });
         return;
       }
     }
-    // 3. 扫描附近BLE设备
+    // 3. Scan for nearby BLE devices
     try {
       setState(() { _step = 3; });
       await BleService().startScan();
     } catch (e) {
-      setState(() { _errorMsg = 'BLE扫描失败: $e'; });
+      setState(() { _errorMsg = 'BLE scan failed: $e'; });
       return;
     }
-    // 4. 连接BLE设备
+    // 4. Connect to BLE device
     try {
       setState(() { _step = 4; });
       await BleService().connectToDevice(widget.deviceId, enableHttp: false);
       _bleConnected = true;
     } catch (e) {
-      setState(() { _errorMsg = 'BLE连接失败: $e'; });
+      setState(() { _errorMsg = 'BLE connection failed: $e'; });
       return;
     }
-    // 5. 跳转配网页面
+    // 5. Navigate to provisioning page
     setState(() { _step = 5; });
     if (!mounted) return;
     Navigator.of(context).pushReplacement(
@@ -118,16 +118,38 @@ class _ReprovisionProgressScreenState extends State<ReprovisionProgressScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('重新设置WIFI')),
+      appBar: AppBar(title: const Text('Reprovision WiFi')),
       body: Padding(
         padding: const EdgeInsets.all(16.0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             if (_errorMsg != null)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 12),
-                child: Text(_errorMsg!, style: const TextStyle(color: Colors.red)),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: Text(
+                      _errorMsg!,
+                      style: const TextStyle(color: Colors.red, fontSize: 15),
+                      textAlign: TextAlign.left,
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    child: ElevatedButton.icon(
+                      icon: const Icon(Icons.refresh),
+                      label: const Text('Retry'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.blue,
+                        foregroundColor: Colors.white,
+                        minimumSize: const Size.fromHeight(40),
+                      ),
+                      onPressed: _startReprovision,
+                    ),
+                  ),
+                ],
               ),
             ...List.generate(_steps.length, (i) => _buildStepTile(i, _steps[i])),
             if (_step < 5 && _errorMsg == null)
