@@ -28,14 +28,24 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
   }
 
   Future<Map<String, dynamic>> _fetchDeviceInfo() async {
-    // TODO: Replace with real HTTP API call to return device info map
-    await Future.delayed(const Duration(seconds: 1));
-    return {
-      'Device Name': widget.deviceName ?? 'Unknown',
-      'Device ID': widget.deviceId,
-      'Device IP': widget.deviceIp,
-      // Other info...
-    };
+    try {
+      HttpService().configure(widget.deviceIp);
+      final resp = await HttpService().getSystemInfo();
+      final Map<String, dynamic> data = resp.isNotEmpty ? Map<String, dynamic>.from(jsonDecode(resp)) : {};
+      return {
+        'Device Name': widget.deviceName ?? data['device_name'] ?? 'Unknown',
+        'Device ID': widget.deviceId,
+        'Device IP': widget.deviceIp,
+        ...data,
+      };
+    } catch (e) {
+      return {
+        'Device Name': widget.deviceName ?? 'Unknown',
+        'Device ID': widget.deviceId,
+        'Device IP': widget.deviceIp,
+        'Error': 'Failed to fetch device info: $e',
+      };
+    }
   }
 
   void _onChangeWifi(BuildContext context) {

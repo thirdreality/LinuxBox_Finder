@@ -124,42 +124,44 @@ class _ReprovisionProgressScreenState extends State<ReprovisionProgressScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            if (_errorMsg != null)
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 12),
-                    child: Text(
-                      _errorMsg!,
-                      style: const TextStyle(color: Colors.red, fontSize: 15),
-                      textAlign: TextAlign.left,
-                    ),
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 8),
-                    child: ElevatedButton.icon(
-                      icon: const Icon(Icons.refresh),
-                      label: const Text('Retry'),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.blue,
-                        foregroundColor: Colors.white,
-                        minimumSize: const Size.fromHeight(40),
-                      ),
-                      onPressed: _startReprovision,
-                    ),
-                  ),
-                ],
-              ),
             ...List.generate(_steps.length, (i) => _buildStepTile(i, _steps[i])),
             if (_step < 5 && _errorMsg == null)
               const Padding(
                 padding: EdgeInsets.only(top: 24),
                 child: Center(child: CircularProgressIndicator()),
               ),
+            const Spacer(),
+            if (_errorMsg != null)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Text(
+                  _errorMsg!,
+                  style: const TextStyle(color: Colors.red, fontSize: 15),
+                  textAlign: TextAlign.left,
+                ),
+              ),
           ],
         ),
       ),
+      bottomNavigationBar: _errorMsg != null
+          ? Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+              child: SizedBox(
+                width: double.infinity,
+                height: 48,
+                child: ElevatedButton.icon(
+                  icon: const Icon(Icons.refresh),
+                  label: const Text('Retry'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.blue,
+                    foregroundColor: Colors.white,
+                    textStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                  ),
+                  onPressed: _startReprovision,
+                ),
+              ),
+            )
+          : null,
     );
   }
 }
