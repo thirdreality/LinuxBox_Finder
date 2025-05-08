@@ -74,32 +74,6 @@ class HttpService {
     }
   }
 
-  // Delete WiFi Networks
-  Future<String> deleteWiFiNetworks() async {
-    if (_baseUrl == null) {
-      throw Exception('HTTP Service not configured with a device IP');
-    }
-
-    try {
-      final response = await http.post(
-        Uri.parse('$_baseUrl/api/system/command'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({
-          'command': 'delete_networks',
-        }),
-      ).timeout(const Duration(seconds: 10));
-
-      if (response.statusCode == 200) {
-        return response.body;
-      } else {
-        throw Exception('Failed to delete WiFi connections: ${response.statusCode}');
-      }
-    } catch (e) {
-      print('Error deleting WiFi networks: $e');
-      throw Exception('Error deleting WiFi networks: $e');
-    }
-  }
-
   // Send System Command
   Future<String> sendCommand(String command, {String param = "", int timeout = 10}) async {
     if (_baseUrl == null) {
@@ -221,41 +195,21 @@ class HttpService {
       return {
         "homeassistant_core": {
           "name": "Home Assistant",
-          "installed": true,
+          "installed": false,
           "enabled": false,
           "software": [
-            {
-              "name": "hacore-config",
-              "version": "2025.4.2"
-            },
-            {
-              "name": "python3",
-              "version": "3.13.3"
-            },
-            {
-              "name": "hacore",
-              "version": "2025.4.3"
-            },
-            {
-              "name": "otbr-agent",
-              "version": "2025.04.24"
-            }
           ]
         },
         "zigbee2mqtt": {
           "name": "zigbee2mqtt",
-          "installed": true,
+          "installed": false,
           "enabled": false,
           "software": [
-            {
-              "name": "zigbee2mqt",
-              "version": ""
-            }
           ]
         },
         "homekitbridge": {
-          "name": "homekitbridge",
-          "installed": true,
+          "name": "Homekit Bridge",
+          "installed": false,
           "enabled": false,
           "software": []
         }
@@ -317,49 +271,231 @@ class HttpService {
         "homeassistant_core": {
           "name": "Home Assistant",
           "service": [
-            {
-              "name": "home-assistant.service",
-              "running": false,
-              "enabled": false
-            },
-            {
-              "name": "matter-server.service",
-              "running": false,
-              "enabled": false
-            },
-            {
-              "name": "otbr-agent.service",
-              "running": false,
-              "enabled": false
-            }
           ]
         },
         "zigbee2mqtt": {
           "name": "zigbee2mqtt",
           "service": [
-            {
-              "name": "zigbee2mqtt.service",
-              "running": false,
-              "enabled": false
-            }
           ]
         },
         "homekitbridge": {
           "name": "homekitbridge",
           "service": [
-            {
-              "name": "homekit-bridge.service",
-              "running": false,
-              "enabled": false
-            }
           ]
         }
       };
     }
   }
+  
+  // Get Single Service Status
+  Future<Map<String, dynamic>> getSingleServiceInfo(String service) async {
+    if (_baseUrl == null) {
+      throw Exception('HTTP Service not configured with a device IP');
+    }
+    
+    // Validate service parameter
+    if (!['homeassistant_core', 'zigbee2mqtt', 'homekitbridge'].contains(service)) {
+      throw Exception('Invalid service parameter. Must be one of: homeassistant_core, zigbee2mqtt, homekitbridge');
+    }
 
-  // Update Service Status (start/stop/enable/disable)
-  Future<Map<String, dynamic>> updateServiceStatus(String serviceId, String action) async {
+    try {
+      final response = await http.get(
+        Uri.parse('$_baseUrl/api/service/info/$service'),
+      ).timeout(const Duration(seconds: 10));
+
+      if (response.statusCode == 200) {
+        return Map<String, dynamic>.from(jsonDecode(response.body));
+      } else {
+        throw Exception('Failed to get service status: ${response.statusCode}');
+      }
+    } catch (e) {
+      print('Error getting single service status: $e');
+      // 如果API不存在，返回模拟数据
+      final mockData = {
+        "homeassistant_core": {
+          "name": "Home Assistant",
+          "service": [
+          ]
+        },
+        "zigbee2mqtt": {
+          "name": "zigbee2mqtt",
+          "service": [
+          ]
+        },
+        "homekitbridge": {
+          "name": "homekitbridge",
+          "service": [
+          ]
+        }
+      };
+      
+      // Return only the requested service
+      if (mockData.containsKey(service)) {
+        return {service: mockData[service]!};
+      } else {
+        return {};
+      }
+    }
+  }
+  
+  // Update Service Status for a specific service in a package
+  Future<void> updateServiceStatus(String packageId, String serviceName, String action) async {
+    if (_baseUrl == null) {
+      throw Exception('HTTP Service not configured with a device IP');
+    }
+    
+    // Validate action parameter
+    if (!['enable', 'disable', 'start', 'stop'].contains(action)) {
+      throw Exception('Invalid action parameter. Must be one of: enable, disable, start, stop');
+    }
+    
+    try {
+      // 1. 构造参数map
+      Map<String, String> paramMap = {};
+      paramMap['action'] = action;
+      
+      // Create param JSON string and encode it
+      final paramJson = jsonEncode({
+        'package': packageId,
+        'service': serviceName
+      });
+      final paramBase64 = base64Encode(utf8.encode(paramJson));
+      paramMap['param'] = paramBase64;
+      
+      // Add timestamp
+      int tvalue = DateTime.now().millisecondsSinceEpoch;
+      paramMap['_ct'] = tvalue.toString();
+
+      // 2. 按key排序，拼接签名用字符串
+      var sortedKeys = paramMap.keys.toList()..sort();
+      var signParts = <String>[];
+      for (var k in sortedKeys) {
+        signParts.add('${Uri.encodeComponent(k)}=${Uri.encodeComponent(paramMap[k]!)}');
+      }
+      String signStr = signParts.join('&');
+      String md5Input = '$signStr&ThirdReality';
+      String sig = md5.convert(utf8.encode(md5Input)).toString();
+
+      // 3. 添加_sig字段
+      paramMap['_sig'] = sig;
+
+      // 4. 按添加顺序拼接body字符串
+      List<String> orderedKeys = ['action', 'param', '_ct', '_sig'];
+      var bodyParts = <String>[];
+      for (var k in orderedKeys) {
+        if (paramMap.containsKey(k)) {
+          bodyParts.add('${Uri.encodeComponent(k)}=${Uri.encodeComponent(paramMap[k]!)}');
+        }
+      }
+      String bodyStr = bodyParts.join('&');
+      print('sending Service update command: $bodyStr');
+
+      final response = await http.post(
+        Uri.parse('$_baseUrl/api/service/control'),
+        headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+        body: bodyStr,
+      ).timeout(const Duration(seconds: 10));
+
+      if (response.statusCode != 200) {
+        throw Exception('Failed to update service status: ${response.statusCode}');
+      }
+    } catch (e) {
+      print('Error updating service status: $e');
+      throw Exception('Failed to update service: $e');
+    }
+  }
+  
+  // Update Software Package
+  Future<void> updateSoftwarePackage(String packageId, String action) async {
+    if (_baseUrl == null) {
+      throw Exception('HTTP Service not configured with a device IP');
+    }
+    
+    // Validate action parameter
+    if (!['install', 'uninstall', 'enable', 'disable', 'upgrade'].contains(action)) {
+      throw Exception('Invalid action parameter. Must be one of: install, uninstall, enable, disable, upgrade');
+    }
+    
+    try {
+      // 1. 构造参数map
+      Map<String, String> paramMap = {};
+      paramMap['action'] = action;
+      
+      // Create param JSON string and encode it
+      final paramJson = jsonEncode({
+        'package': packageId
+      });
+      final paramBase64 = base64Encode(utf8.encode(paramJson));
+      paramMap['param'] = paramBase64;
+      
+      // Add timestamp
+      int tvalue = DateTime.now().millisecondsSinceEpoch;
+      paramMap['_ct'] = tvalue.toString();
+
+      // 2. 按key排序，拼接签名用字符串
+      var sortedKeys = paramMap.keys.toList()..sort();
+      var signParts = <String>[];
+      for (var k in sortedKeys) {
+        signParts.add('${Uri.encodeComponent(k)}=${Uri.encodeComponent(paramMap[k]!)}');
+      }
+      String signStr = signParts.join('&');
+      String md5Input = '$signStr&ThirdReality';
+      String sig = md5.convert(utf8.encode(md5Input)).toString();
+
+      // 3. 添加_sig字段
+      paramMap['_sig'] = sig;
+
+      // 4. 按添加顺序拼接body字符串
+      List<String> orderedKeys = ['action', 'param', '_ct', '_sig'];
+      var bodyParts = <String>[];
+      for (var k in orderedKeys) {
+        if (paramMap.containsKey(k)) {
+          bodyParts.add('${Uri.encodeComponent(k)}=${Uri.encodeComponent(paramMap[k]!)}');
+        }
+      }
+      String bodyStr = bodyParts.join('&');
+      print('sending Software update command: $bodyStr');
+
+      final response = await http.post(
+        Uri.parse('$_baseUrl/api/software/command'),
+        headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+        body: bodyStr,
+      ).timeout(const Duration(seconds: 30));
+
+      if (response.statusCode != 200) {
+        throw Exception('Failed to update software package: ${response.statusCode}');
+      }
+    } catch (e) {
+      print('Error updating software package: $e');
+      throw Exception('Failed to update software package: $e');
+    }
+  }
+  
+  // Reset Software to Default
+  Future<void> resetSoftwareToDefault() async {
+    if (_baseUrl == null) {
+      throw Exception('HTTP Service not configured with a device IP');
+    }
+    
+    try {
+      final response = await http.post(
+        Uri.parse('$_baseUrl/api/software/reset'),
+        headers: <String, String>{
+          'Content-Type': 'application/json; charset=UTF-8',
+        },
+      ).timeout(const Duration(seconds: 10));
+
+      if (response.statusCode != 200) {
+        throw Exception('Failed to reset software: ${response.statusCode}');
+      }
+    } catch (e) {
+      print('Error resetting software: $e');
+      throw Exception('Failed to reset software: $e');
+    }
+  }
+
+  // Legacy method for service_manager_screen - DO NOT USE IN NEW CODE
+  Future<Map<String, dynamic>> updateServiceStatusLegacy(String serviceId, String action) async {
     if (_baseUrl == null) {
       throw Exception('HTTP Service not configured with a device IP');
     }
@@ -386,40 +522,6 @@ class HttpService {
         'success': true,
         'message': 'Service $serviceId $action operation completed',
         'service': serviceId,
-        'action': action
-      };
-    }
-  }
-
-
-  // Update Software Package (install/uninstall/enable/disable)
-  Future<Map<String, dynamic>> updateSoftwarePackage(String packageId, String action) async {
-    if (_baseUrl == null) {
-      throw Exception('HTTP Service not configured with a device IP');
-    }
-
-    try {
-      final response = await http.post(
-        Uri.parse('$_baseUrl/api/system/software-package'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({
-          'package': packageId,
-          'action': action, // install, uninstall, enable, disable
-        }),
-      ).timeout(const Duration(seconds: 30));
-
-      if (response.statusCode == 200) {
-        return Map<String, dynamic>.from(jsonDecode(response.body));
-      } else {
-        throw Exception('Failed to update software package: ${response.statusCode}');
-      }
-    } catch (e) {
-      print('Error updating software package: $e');
-      // 模拟成功响应
-      return {
-        'success': true,
-        'message': 'Software package $packageId $action operation initiated',
-        'package': packageId,
         'action': action
       };
     }
@@ -452,8 +554,8 @@ class HttpService {
     }
   }
 
-  // Reset Software to Default
-  Future<Map<String, dynamic>> resetSoftwareToDefault() async {
+  // Legacy method for software_manager_screen - DO NOT USE IN NEW CODE
+  Future<Map<String, dynamic>> resetSoftwareToDefaultLegacy() async {
     if (_baseUrl == null) {
       throw Exception('HTTP Service not configured with a device IP');
     }

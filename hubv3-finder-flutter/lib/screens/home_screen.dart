@@ -7,7 +7,6 @@ import 'device_scan_screen.dart';
 import 'device_detail_screen.dart';
 import 'software_manager_screen.dart';
 import 'firmware_manager_screen.dart';
-import 'service_manager_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({Key? key}) : super(key: key);
@@ -243,19 +242,6 @@ class _HomeScreenState extends State<HomeScreen> {
             );
           }
           break;
-        case 'service_manager':
-          // 跳转到服务管理页面
-          if (_selectedDeviceIp != null) {
-            Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (context) => ServiceManagerScreen(
-                  deviceIp: _selectedDeviceIp!,
-                ),
-              ),
-            );
-          }
-          break;
         case 'factory_reset':
           // 恢复出厂设置
           // 添加确认对话框
@@ -303,11 +289,11 @@ class _HomeScreenState extends State<HomeScreen> {
         'command': 'software_manager',
         'icon': Icons.apps
       },
-      {
-        'label': 'Service Manager',
-        'command': 'service_manager',
-        'icon': Icons.miscellaneous_services
-      },           
+      // {
+      //   'label': 'Service Manager',
+      //   'command': 'service_manager',
+      //   'icon': Icons.miscellaneous_services
+      // },           
       {
         'label': 'Firmware Manager',
         'command': 'firmware_manager',

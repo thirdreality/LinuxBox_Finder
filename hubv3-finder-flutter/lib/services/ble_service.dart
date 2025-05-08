@@ -407,21 +407,6 @@ class BleService {
     }
   }
 
-  // Delete WiFi networks
-  Future<String> deleteWiFiNetworks() async {
-    try {
-      // Check if HTTP mode is used
-      if (_useHttpMode) {
-        print('Deleting WiFi network using HTTP mode');
-        await _httpService.deleteWiFiNetworks();
-      }
-
-      throw Exception('Not connected to any device');
-    } catch (e) {
-      print('Failed to delete WiFi network: $e');
-      return 'Error: $e';
-    }
-  }
 
   // Send command
   Future<String> sendCommand(String command) async {
