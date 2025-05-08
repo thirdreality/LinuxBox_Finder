@@ -1,5 +1,7 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import 'dart:convert';
+import 'package:crypto/crypto.dart';
 
 class HttpService {
   // Singleton instance
@@ -99,24 +101,58 @@ class HttpService {
   }
 
   // Send System Command
-  Future<String> sendCommand(String command) async {
+  Future<String> sendCommand(String command, {String param = "", int timeout = 10}) async {
     if (_baseUrl == null) {
       throw Exception('HTTP Service not configured with a device IP');
     }
 
     try {
+      // 1. 构造参数map
+      Map<String, String> paramMap = {};
+      paramMap['command'] = command;
+      if (param.isNotEmpty) {
+        final paramBase64 = base64Encode(utf8.encode(param));
+        paramMap['param'] = paramBase64;
+      }
+      int tvalue = DateTime.now().millisecondsSinceEpoch;
+      paramMap['_ct'] = tvalue.toString();
+
+      // 2. 按key排序，拼接签名用字符串
+      var sortedKeys = paramMap.keys.toList()..sort();
+      var signParts = <String>[];
+      for (var k in sortedKeys) {
+        signParts.add('${Uri.encodeComponent(k)}=${Uri.encodeComponent(paramMap[k]!)}');
+      }
+      String signStr = signParts.join('&');
+      String md5Input = '$signStr&ThirdReality';
+      print('Signature: $md5Input');
+      String sig = md5.convert(utf8.encode(md5Input)).toString();
+
+      // 3. 添加_sig字段
+      paramMap['_sig'] = sig;
+
+      // 4. 按添加顺序拼接body字符串
+      List<String> orderedKeys = ['command', 'param', '_ct', '_sig'];
+      var bodyParts = <String>[];
+      for (var k in orderedKeys) {
+        if (paramMap.containsKey(k)) {
+          bodyParts.add('${Uri.encodeComponent(k)}=${Uri.encodeComponent(paramMap[k]!)}');
+        }
+      }
+      String bodyStr = bodyParts.join('&');
+
+      print('sending command: $bodyStr');
+
       final response = await http.post(
         Uri.parse('$_baseUrl/api/system/command'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({
-          'command': command,
-        }),
-      ).timeout(const Duration(seconds: 10));
+        headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+        body: bodyStr,
+      ).timeout(Duration(seconds: timeout));
 
       if (response.statusCode == 200) {
         return response.body;
       } else {
-        throw Exception('Failed to send command: ${response.statusCode}');
+        throw Exception('Failed to send command: \\${response.statusCode}');
       }
     } catch (e) {
       print('Error sending command: $e');

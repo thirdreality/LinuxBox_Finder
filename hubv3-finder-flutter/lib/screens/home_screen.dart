@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../services/http_service.dart';
+import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/WiFiConnectionStatus.dart';
 import 'device_scan_screen.dart';
@@ -18,6 +19,7 @@ class _HomeScreenState extends State<HomeScreen> {
   String? _selectedDeviceName;
   WiFiConnectionStatus? _wifiStatus;
   bool _loadingDevice = false;
+  String? _restoreResult;
 
   @override
   void initState() {
@@ -26,7 +28,9 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _loadSelectedDevice() async {
-    setState(() { _loadingDevice = true; });
+    setState(() {
+      _loadingDevice = true;
+    });
     final prefs = await SharedPreferences.getInstance();
     _selectedDeviceId = prefs.getString('selected_device_id');
     _selectedDeviceIp = prefs.getString('selected_device_ip');
@@ -42,14 +46,21 @@ class _HomeScreenState extends State<HomeScreen> {
     } else {
       _wifiStatus = null;
     }
-    setState(() { _loadingDevice = false; });
+    setState(() {
+      _loadingDevice = false;
+    });
   }
 
-  Future<void> _saveSelectedDevice({required String id, required String ip, String? deviceName, String? wifiMac}) async {
+  Future<void> _saveSelectedDevice(
+      {required String id,
+      required String ip,
+      String? deviceName,
+      String? wifiMac}) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('selected_device_id', id);
     await prefs.setString('selected_device_ip', ip);
-    if (deviceName != null) await prefs.setString('selected_device_name', deviceName);
+    if (deviceName != null)
+      await prefs.setString('selected_device_name', deviceName);
     if (wifiMac != null) await prefs.setString('selected_wifi_mac', wifiMac);
     setState(() {
       _selectedDeviceId = id;
@@ -131,13 +142,15 @@ class _HomeScreenState extends State<HomeScreen> {
                   const SizedBox(height: 4),
                   Text(
                     _selectedDeviceName ?? _selectedDeviceId ?? '',
-                    style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                    style: const TextStyle(
+                        fontSize: 18, fontWeight: FontWeight.bold),
                     overflow: TextOverflow.ellipsis,
                   ),
                   if (_selectedDeviceIp != null)
                     Padding(
                       padding: const EdgeInsets.only(top: 2),
-                      child: Text('IP: $_selectedDeviceIp', style: const TextStyle(fontSize: 14)),
+                      child: Text('IP: $_selectedDeviceIp',
+                          style: const TextStyle(fontSize: 14)),
                     ),
                   if (_wifiStatus != null)
                     Padding(
@@ -149,16 +162,20 @@ class _HomeScreenState extends State<HomeScreen> {
                             style: const TextStyle(fontSize: 14),
                           ),
                           Text(
-                            _wifiStatus!.isConnected ? 'Online' : 'Offline/Unavailable',
+                            _wifiStatus!.isConnected
+                                ? 'Online'
+                                : 'Offline/Unavailable',
                             style: TextStyle(
                               fontSize: 14,
-                              color: _wifiStatus!.isConnected ? Colors.green : Colors.red,
+                              color: _wifiStatus!.isConnected
+                                  ? Colors.green
+                                  : Colors.red,
                               fontWeight: FontWeight.bold,
                             ),
                           ),
                         ],
                       ),
-                    ),                    
+                    ),
                 ],
               ),
             ),
@@ -189,9 +206,26 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Widget _buildCommandList() {
     final commands = [
-      {'label': 'Reboot device', 'command': 'reboot', 'icon': Icons.restart_alt},
-      {'label': 'Install Software', 'command': 'install', 'icon': Icons.download},
-      {'label': 'Uninstall Software', 'command': 'uninstall', 'icon': Icons.delete},
+      {
+        'label': 'Reboot device',
+        'command': 'reboot',
+        'icon': Icons.restart_alt
+      },
+      {
+        'label': 'Install Software',
+        'command': 'install',
+        'icon': Icons.download
+      },
+      {
+        'label': 'Uninstall Software',
+        'command': 'uninstall',
+        'icon': Icons.delete
+      },
+      {
+        'label': 'Factory Reset',
+        'command': 'factory_reset',
+        'icon': Icons.settings_backup_restore
+      },      
     ];
     return Card(
       margin: const EdgeInsets.all(16),
@@ -200,35 +234,54 @@ class _HomeScreenState extends State<HomeScreen> {
         children: [
           const Padding(
             padding: EdgeInsets.all(16.0),
-            child: Text('Functions', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            child: Text('Functions',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
           ),
           const Divider(),
           ...commands.map((cmd) => ListTile(
-            leading: Icon(cmd['icon'] as IconData),
-            title: Text(cmd['label'] as String),
-            onTap: () async {
-              if (_wifiStatus == null) {
-                showDialog(
-                  context: context,
-                  builder: (context) => AlertDialog(
-                    title: const Text('Device Unavailable'),
-                    content: const Text('The device is offline or unavailable. Please connect to a device first.'),
-                    actions: [
-                      TextButton(
-                        onPressed: () => Navigator.of(context).pop(),
-                        child: const Text('OK'),
+                leading: Icon(cmd['icon'] as IconData),
+                title: Text(cmd['label'] as String),
+                onTap: () async {
+                  if (_wifiStatus == null) {
+                    showDialog(
+                      context: context,
+                      builder: (context) => AlertDialog(
+                        title: const Text('Device Unavailable'),
+                        content: const Text(
+                            'The device is offline or unavailable. Please connect to a device first.'),
+                        actions: [
+                          TextButton(
+                            onPressed: () => Navigator.of(context).pop(),
+                            child: const Text('OK'),
+                          ),
+                        ],
                       ),
-                    ],
-                  ),
-                );
-                return;
-              }
-              // For demonstration, actually should call BleService/HttpService to send the command
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text('Command sent: ${cmd['label']}')),
-              );
-            },
-          )),
+                    );
+                    return;
+                  }
+
+                  try {
+                    final paramStr = jsonEncode({
+                      'software': 'home-assistant',
+                    });
+
+                    final resp = await HttpService().sendCommand(cmd['command'] as String, param: paramStr);
+                    final json = resp.isNotEmpty ? Map<String, dynamic>.from(jsonDecode(resp)) : {};
+                    if (json['success'] == true) {
+                      _restoreResult = json['restore']?.toString();
+                    } else {
+                      return;
+                    }
+                  } catch (e) {
+                    return;
+                  } 
+
+                  // For demonstration, actually should call BleService/HttpService to send the command
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Command sent: ${cmd['label']}')),
+                  );
+                },
+              )),
         ],
       ),
     );
@@ -237,12 +290,28 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('ThirdReality Hub Finder')),
-      body: Column(
-        children: [
-          _buildDeviceCard(),
-          Expanded(child: _buildCommandList()),
+      appBar: AppBar(
+        title: const Text('ThirdReality Hub Finder'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            tooltip: 'Refresh Device',
+            onPressed: _loadSelectedDevice,
+          ),
         ],
+      ),
+      body: RefreshIndicator(
+        onRefresh: _loadSelectedDevice,
+        child: ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          children: [
+            _buildDeviceCard(),
+            SizedBox(
+              height: MediaQuery.of(context).size.height * 0.5, 
+              child: _buildCommandList(),
+            ),
+          ],
+        ),
       ),
     );
   }
