@@ -183,7 +183,6 @@ class BleService {
           break;
         }
       }
-
       
       // Check if device has IP address
       if (selectedDevice != null && selectedDevice.ipAddress != null && enableHttp) {
@@ -256,7 +255,7 @@ class BleService {
       print('Connecting to device: ${device.platformName}');
       await device.connect(timeout: Duration(seconds: 15), autoConnect: false);
       
-      print('Device connected');
+      print('BlueTooth connected');
       _connectedDevice = device;
       return device;
     } catch (e) {
@@ -449,7 +448,7 @@ class BleService {
     if (_connectedDevice != null) {
       try {
         await _connectedDevice!.disconnect();
-        print('Disconnected');
+        print('BlueTooth Disconnected');
       } catch (e) {
         print('Error when disconnecting: $e');
       }

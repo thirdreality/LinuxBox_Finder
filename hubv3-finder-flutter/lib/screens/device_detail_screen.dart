@@ -23,11 +23,25 @@ class DeviceDetailScreen extends StatefulWidget {
 
 class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
   late Future<Map<String, dynamic>> _deviceInfoFuture;
+  bool _isRefreshing = false;
 
   @override
   void initState() {
     super.initState();
     _deviceInfoFuture = _fetchDeviceInfo();
+  }
+  
+  // Method to refresh device information
+  void _refreshDeviceInfo() {
+    setState(() {
+      _isRefreshing = true;
+      _deviceInfoFuture = _fetchDeviceInfo().then((value) {
+        setState(() {
+          _isRefreshing = false;
+        });
+        return value;
+      });
+    });
   }
 
   Future<Map<String, dynamic>> _fetchDeviceInfo() async {
@@ -36,9 +50,6 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
       final resp = await HttpService().getSystemInfo();
       final Map<String, dynamic> data = resp.isNotEmpty ? Map<String, dynamic>.from(jsonDecode(resp)) : {};
       return {
-        'Device Name': widget.deviceName ?? data['device_name'] ?? 'Unknown',
-        'Device ID': widget.deviceId,
-        'Device IP': widget.deviceIp,
         ...data,
       };
     } catch (e) {
@@ -76,7 +87,25 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Device information')),
+      appBar: AppBar(
+        title: const Text('Device information'),
+        actions: [
+          IconButton(
+            icon: _isRefreshing 
+              ? const SizedBox(
+                  width: 20, 
+                  height: 20, 
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                  ),
+                )
+              : const Icon(Icons.refresh),
+            tooltip: 'Refresh device information',
+            onPressed: _isRefreshing ? null : _refreshDeviceInfo,
+          ),
+        ],
+      ),
       body: Column(
         children: [
           Expanded(
@@ -91,16 +120,38 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
                       child: Text('Failed to load: \\${snapshot.error}'));
                 }
                 final info = snapshot.data ?? {};
-                return ListView(
-                  children: info.entries
-                      .map((e) => ListTile(
-                            title: Text(e.key),
-                            subtitle: Padding(
-                              padding: const EdgeInsets.only(left: 16.0),
-                              child: Text(e.value.toString()),
+                return ListView.separated(
+                  padding: const EdgeInsets.all(16.0),
+                  itemCount: info.entries.length,
+                  separatorBuilder: (context, index) => const Divider(height: 24),
+                  itemBuilder: (context, index) {
+                    final entry = info.entries.elementAt(index);
+                    return Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(
+                          flex: 2,
+                          child: Text(
+                            entry.key,
+                            style: const TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 16,
                             ),
-                          ))
-                      .toList(),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          flex: 3,
+                          child: Text(
+                            entry.value.toString(),
+                            style: const TextStyle(
+                              fontSize: 16,
+                            ),
+                          ),
+                        ),
+                      ],
+                    );
+                  },
                 );
               },
             ),

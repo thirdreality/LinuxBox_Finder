@@ -5,6 +5,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../models/WiFiConnectionStatus.dart';
 import 'device_scan_screen.dart';
 import 'device_detail_screen.dart';
+import 'software_manager_screen.dart';
+import 'firmware_manager_screen.dart';
+import 'service_manager_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({Key? key}) : super(key: key);
@@ -204,27 +207,121 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  Future<void> _handle_command(String command) async {
+    try {
+      switch (command) {
+        case 'reboot':
+          // 设备重启
+          await HttpService().sendCommand('reboot');
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Reboot command sent.')),
+          );
+          break;
+        case 'software_manager':
+          // 跳转到软件管理页面
+          if (_selectedDeviceIp != null) {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => SoftwareManagerScreen(
+                  deviceIp: _selectedDeviceIp!,
+                ),
+              ),
+            );
+          }
+          break;
+        case 'firmware_manager':
+          // 跳转到固件管理页面
+          if (_selectedDeviceIp != null) {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => FirmwareManagerScreen(
+                  deviceIp: _selectedDeviceIp!,
+                ),
+              ),
+            );
+          }
+          break;
+        case 'service_manager':
+          // 跳转到服务管理页面
+          if (_selectedDeviceIp != null) {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => ServiceManagerScreen(
+                  deviceIp: _selectedDeviceIp!,
+                ),
+              ),
+            );
+          }
+          break;
+        case 'factory_reset':
+          // 恢复出厂设置
+          // 添加确认对话框
+          showDialog(
+            context: context,
+            builder: (context) => AlertDialog(
+              title: const Text('Factory Reset'),
+              content: const Text(
+                  'Are you sure you want to reset this device to factory settings? This will erase all data and settings.'),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: const Text('Cancel'),
+                ),
+                TextButton(
+                  onPressed: () async {
+                    Navigator.of(context).pop();
+                    await HttpService().sendCommand('factory_reset');
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Factory Reset command sent.')),
+                    );
+                  },
+                  child: const Text('Reset', style: TextStyle(color: Colors.red)),
+                ),
+              ],
+            ),
+          );
+          break;
+        default:
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Unknown command: $command')),
+          );
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Command failed: $e')),
+      );
+    }
+  }
+
   Widget _buildCommandList() {
     final commands = [
       {
-        'label': 'Reboot device',
-        'command': 'reboot',
-        'icon': Icons.restart_alt
+        'label': 'Software Manager',
+        'command': 'software_manager',
+        'icon': Icons.apps
       },
       {
-        'label': 'Install Software',
-        'command': 'install',
-        'icon': Icons.download
-      },
+        'label': 'Service Manager',
+        'command': 'service_manager',
+        'icon': Icons.miscellaneous_services
+      },           
       {
-        'label': 'Uninstall Software',
-        'command': 'uninstall',
-        'icon': Icons.delete
+        'label': 'Firmware Manager',
+        'command': 'firmware_manager',
+        'icon': Icons.system_update
       },
       {
         'label': 'Factory Reset',
         'command': 'factory_reset',
         'icon': Icons.settings_backup_restore
+      }, 
+      {
+        'label': 'Reboot device',
+        'command': 'reboot',
+        'icon': Icons.restart_alt
       },      
     ];
     return Card(
@@ -241,6 +338,12 @@ class _HomeScreenState extends State<HomeScreen> {
           ...commands.map((cmd) => ListTile(
                 leading: Icon(cmd['icon'] as IconData),
                 title: Text(cmd['label'] as String),
+                // Add trailing arrow icon for manager screens
+                trailing: (cmd['command'] == 'software_manager' || 
+                       cmd['command'] == 'service_manager' || 
+                       cmd['command'] == 'firmware_manager') 
+                  ? const Icon(Icons.arrow_forward_ios, size: 16) 
+                  : null,
                 onTap: () async {
                   if (_wifiStatus == null) {
                     showDialog(
@@ -261,25 +364,15 @@ class _HomeScreenState extends State<HomeScreen> {
                   }
 
                   try {
-                    final paramStr = jsonEncode({
-                      'software': 'home-assistant',
-                    });
-
-                    final resp = await HttpService().sendCommand(cmd['command'] as String, param: paramStr);
-                    final json = resp.isNotEmpty ? Map<String, dynamic>.from(jsonDecode(resp)) : {};
-                    if (json['success'] == true) {
-                      _restoreResult = json['restore']?.toString();
-                    } else {
-                      return;
-                    }
+                    _handle_command(cmd['command'] as String);
                   } catch (e) {
                     return;
                   } 
 
-                  // For demonstration, actually should call BleService/HttpService to send the command
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Command sent: ${cmd['label']}')),
-                  );
+                  // // For demonstration, actually should call BleService/HttpService to send the command
+                  // ScaffoldMessenger.of(context).showSnackBar(
+                  //   SnackBar(content: Text('Command sent: ${cmd['label']}')),
+                  // );
                 },
               )),
         ],
@@ -306,10 +399,7 @@ class _HomeScreenState extends State<HomeScreen> {
           physics: const AlwaysScrollableScrollPhysics(),
           children: [
             _buildDeviceCard(),
-            SizedBox(
-              height: MediaQuery.of(context).size.height * 0.5, 
-              child: _buildCommandList(),
-            ),
+            _buildCommandList(),
           ],
         ),
       ),
