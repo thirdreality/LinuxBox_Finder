@@ -130,16 +130,19 @@ class _ProvisionScreenState extends State<ProvisionScreen> {
         _passwordController.text,
         false
       );
+      
+      // Process the result
       final Map<String, dynamic> json = result is String ? Map<String, dynamic>.from(jsonDecode(result)) : {};
       if (json['connected'] == true && json['ip_address'] != null && json['ip_address'].toString().isNotEmpty) {
         // Provisioning successful, save information
         final prefs = await SharedPreferences.getInstance();
         await prefs.setString('selected_device_ip', json['ip_address']);
         await prefs.setString('selected_device_id', widget.deviceId);
+        
         // Get current device name (optional, retrieve from BLEService or pass it)
         String? deviceName;
         try {
-           // Use singleton instance to access discovered devices
+          // Use singleton instance to access discovered devices
           final devices = BleService().discoveredDevices;
           final match = devices.firstWhereOrNull((d) => d.id == widget.deviceId);
           if (match != null && match.name != null) {
@@ -147,27 +150,73 @@ class _ProvisionScreenState extends State<ProvisionScreen> {
             await prefs.setString('selected_device_name', deviceName!);
           }
         } catch (_) {}
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Provisioning successful, redirecting...'), backgroundColor: Colors.green));
+        
+        // Call the success callback if provided
+        if (widget.onProvisionSuccess != null) {
+          widget.onProvisionSuccess!(json['ip_address']);
+        }
+        
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Provisioning successful, redirecting...'), 
+            backgroundColor: Colors.green
+          )
+        );
+        
         await Future.delayed(const Duration(seconds: 1));
         if (mounted) {
           Navigator.of(context).pushNamedAndRemoveUntil('/', (route) => false);
         }
       } else {
-        // setState(() {
-        //   _errorMsg = 'Provisioning failed, please try again';
-        // });
+        // WiFi configuration failed
+        _showErrorSnackBar('Failed to configure WiFi. Please check the password and try again.');
       }
     } catch (e) {
       print('Error configuring WiFi networks: $e');
-      // setState(() {
-      //   _errorMsg = 'Provisioning error: $e';
-      // });
+      _showErrorSnackBar('Error: $e');
     } finally {
       setState(() {
         _isLoading = false;
       });
       _closeDialogIfOpen(); // Close the WiFi configuration dialog
     }
+  }
+  
+  void _showErrorSnackBar(String message) {
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(message),
+          backgroundColor: Colors.red,
+          duration: const Duration(seconds: 5),
+        ),
+      );
+    }
+  }
+  
+  void _showBluetoothErrorDialog(String title, String message) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(title),
+        content: Text(message),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.of(context).pop();
+            },
+            child: const Text('OK'),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.of(context).pop();
+              Navigator.of(context).pop(); // Go back to previous screen
+            },
+            child: const Text('Go Back'),
+          ),
+        ],
+      ),
+    );
   }
 
 

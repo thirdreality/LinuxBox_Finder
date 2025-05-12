@@ -143,12 +143,7 @@ class _DeviceScanScreenState extends State<DeviceScanScreen> {
         }
       } catch (e) {
         if (mounted) Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Failed to connect: ${e.toString()}'),
-            backgroundColor: Colors.red,
-          ),
-        );
+        _showConnectionErrorDialog(e.toString(), device);
       }
     } else {
       // Connect BLE first, ensure BLE is connected before entering provisioning page
@@ -163,16 +158,54 @@ class _DeviceScanScreenState extends State<DeviceScanScreen> {
         );
         // Provisioning success, saving info and navigation logic handled in provision_screen, no need to navigate here
       } catch (e) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('BLE connection failed: ${e.toString()}'),
-            backgroundColor: Colors.red,
-          ),
-        );
+        _showConnectionErrorDialog(e.toString(), device);
       }
     }
   }
 
+  void _showConnectionErrorDialog(String errorMessage, BleDevice device) {
+    String errorTitle = 'Connection Failed';
+    String errorDetails = errorMessage;
+    String errorGuide = '请尝试以下操作：\n- 确保设备已开机并在附近\n- 关闭并重新打开手机蓝牙\n- 重启应用程序';
+    
+    // 检查是否为 Android 错误码 133
+    if (errorMessage.contains('android-code: 133')) {
+      errorTitle = '蓝牙连接错误 (错误码: 133)';
+      errorDetails = '无法连接到设备，可能原因：\n1. 设备已被其他应用程序连接\n2. 设备不在范围内或已关闭\n3. 手机蓝牙存在问题';
+    }
+    
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(errorTitle),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(errorDetails),
+            const SizedBox(height: 16),
+            Text(errorGuide),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.of(context).pop();
+            },
+            child: const Text('关闭'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.of(context).pop();
+              _onConnectToDevice(device);
+            },
+            child: const Text('重试连接'),
+          ),
+        ],
+      ),
+    );
+  }
+  
   Widget _buildDeviceList() {
     if (_devices.isEmpty) {
       return Center(

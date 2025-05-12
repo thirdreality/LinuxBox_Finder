@@ -251,13 +251,57 @@ class BleService {
         await disconnect();
       }
 
-      // Connect to device
+      // Connect to device with retry logic
       print('Connecting to device: ${device.platformName}');
-      await device.connect(timeout: Duration(seconds: 15), autoConnect: false);
+      int retryCount = 0;
+      const maxRetries = 3;
       
-      print('BlueTooth connected');
-      _connectedDevice = device;
-      return device;
+      while (retryCount < maxRetries) {
+        try {
+          // Before attempting to connect, ensure any previous connections are properly closed
+          try {
+            // Try to disconnect first to clear any stale connections
+            await device.disconnect();
+            await Future.delayed(const Duration(milliseconds: 500));
+          } catch (e) {
+            // Ignore errors during disconnect as the device might not be connected
+            print('Disconnect before connect attempt: $e');
+          }
+          
+          // Now try to connect
+          await device.connect(timeout: const Duration(seconds: 15), autoConnect: false);
+          print('BlueTooth connected successfully');
+          _connectedDevice = device;
+          return device;
+        } catch (e) {
+          retryCount++;
+          print('Connection attempt $retryCount failed: $e');
+          
+          // Check if this is the Android error code 133
+          if (e.toString().contains('android-code: 133')) {
+            print('Android error code 133 detected, waiting before retry...');
+            // Wait longer between retries for this specific error
+            await Future.delayed(const Duration(seconds: 2));
+            
+            // If this is the last retry, try toggling Bluetooth
+            if (retryCount == maxRetries - 1) {
+              print('Last retry attempt, suggesting Bluetooth reset');
+              // We can't toggle Bluetooth programmatically, so we'll just inform the user
+            }
+          } else {
+            // For other errors, wait a shorter time
+            await Future.delayed(const Duration(milliseconds: 500));
+          }
+          
+          // If we've reached max retries, rethrow the error
+          if (retryCount >= maxRetries) {
+            throw Exception('Failed to connect after $maxRetries attempts: $e');
+          }
+        }
+      }
+      
+      // This should not be reached due to the exception in the loop, but just in case
+      throw Exception('Failed to connect to device after multiple attempts');
     } catch (e) {
       print('Error connecting to device: $e');
       throw Exception('Failed to connect to device: $e');
@@ -321,7 +365,7 @@ class BleService {
       StreamSubscription<List<int>>? subscription;
 
       // Set timeout
-      Timer timer = Timer(const Duration(seconds: 10), () {
+      Timer timer = Timer(const Duration(seconds: 60), () {
         if (!completer.isCompleted) {
           subscription?.cancel();
           completer.complete(defaultResult);

@@ -79,7 +79,15 @@ class _ReprovisionProgressScreenState extends State<ReprovisionProgressScreen> {
       await BleService().connectToDevice(widget.deviceId, enableHttp: false);
       _bleConnected = true;
     } catch (e) {
-      setState(() { _errorMsg = 'BLE connection failed: $e'; });
+      // 提供更详细的错误信息
+      String errorMessage = 'BLE connection failed: $e';
+      
+      // 针对 Android 错误码 133 提供更具体的错误信息
+      if (e.toString().contains('android-code: 133')) {
+        errorMessage = '蓝牙连接错误 (错误码: 133)：可能原因包括设备已被其他应用连接、设备不在范围内或已关闭、手机蓝牙存在问题。请尝试关闭并重新打开手机蓝牙，确保设备已开机并在附近，或重启应用程序。';
+      }
+      
+      setState(() { _errorMsg = errorMessage; });
       return;
     }
     // 5. Navigate to provisioning page
