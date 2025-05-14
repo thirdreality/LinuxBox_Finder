@@ -1,6 +1,6 @@
 import 'dart:convert';
+import 'dart:async';
 import 'package:http/http.dart' as http;
-import 'dart:convert';
 import 'package:crypto/crypto.dart';
 
 class HttpService {
@@ -135,7 +135,7 @@ class HttpService {
   }
 
   // Get System Info
-  Future<String> getSystemInfo() async {
+  Future<String> getSystemInfo({int timeout = 30}) async {
     if (_baseUrl == null) {
       throw Exception('HTTP Service not configured with a device IP');
     }
@@ -143,7 +143,7 @@ class HttpService {
     try {
       final response = await http.get(
         Uri.parse('$_baseUrl/api/system/info'),
-      ).timeout(const Duration(seconds: 10));
+      ).timeout(Duration(seconds: timeout));
 
       if (response.statusCode == 200) {
         return response.body;
@@ -152,7 +152,11 @@ class HttpService {
       }
     } catch (e) {
       print('Error getting system info: $e');
-      throw Exception('Error getting system info: $e');
+      if (e is TimeoutException) {
+        throw Exception('Device response timed out. Please ensure the device is powered on and connected to the network.');
+      } else {
+        throw Exception('Error getting system info: $e');
+      }
     }
   }
 
@@ -182,7 +186,7 @@ class HttpService {
     try {
       final response = await http.get(
         Uri.parse('$_baseUrl/api/software/info'),
-      ).timeout(const Duration(seconds: 10));
+      ).timeout(const Duration(seconds: 30));
 
       if (response.statusCode == 200) {
         return Map<String, dynamic>.from(jsonDecode(response.body));
