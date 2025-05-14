@@ -363,7 +363,7 @@ class BleService {
       // Create a Completer to wait for response
       Completer<String> completer = Completer<String>();
       StreamSubscription<List<int>>? subscription;
-
+ 
       // Set timeout
       Timer timer = Timer(const Duration(seconds: 60), () {
         if (!completer.isCompleted) {

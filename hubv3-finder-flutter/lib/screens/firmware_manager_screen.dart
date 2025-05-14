@@ -20,6 +20,8 @@ class _FirmwareManagerScreenState extends State<FirmwareManagerScreen> {
   @override
   void initState() {
     super.initState();
+    // 确保在加载固件信息之前配置 HTTP 服务的 IP 地址
+    HttpService().configure(widget.deviceIp);
     _loadFirmwareInfo();
   }
 

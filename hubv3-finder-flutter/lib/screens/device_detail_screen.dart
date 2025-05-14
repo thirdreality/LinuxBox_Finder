@@ -160,23 +160,6 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
             child: Column(
               children: [
-                SizedBox(
-                  height: 48,
-                  width: double.infinity,
-                  child: ElevatedButton(
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.red,
-                      foregroundColor: Colors.white,
-                      minimumSize: const Size.fromHeight(32),
-                      padding: EdgeInsets.zero,
-                    ),
-                    onPressed: () async {
-                      _onChangeWifi(context);
-                    },
-                    child: const Text('Change Wifi Connection',
-                        style: TextStyle(fontSize: 16)),
-                  ),
-                ),
                 const SizedBox(height: 8),
                 SizedBox(
                   height: 48,

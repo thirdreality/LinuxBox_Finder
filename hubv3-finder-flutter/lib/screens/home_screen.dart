@@ -157,24 +157,42 @@ class _HomeScreenState extends State<HomeScreen> {
                   if (_wifiStatus != null)
                     Padding(
                       padding: const EdgeInsets.only(top: 2),
-                      child: Row(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(
-                            'Device Status: ',
-                            style: const TextStyle(fontSize: 14),
+                          Row(
+                            children: [
+                              Text(
+                                'Device Status: ',
+                                style: const TextStyle(fontSize: 14),
+                              ),
+                              Text(
+                                _wifiStatus!.isConnected
+                                    ? 'Online'
+                                    : 'Offline/Unavailable',
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  color: _wifiStatus!.isConnected
+                                      ? Colors.green
+                                      : Colors.red,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ],
                           ),
-                          Text(
-                            _wifiStatus!.isConnected
-                                ? 'Online'
-                                : 'Offline/Unavailable',
-                            style: TextStyle(
-                              fontSize: 14,
-                              color: _wifiStatus!.isConnected
-                                  ? Colors.green
-                                  : Colors.red,
-                              fontWeight: FontWeight.bold,
+                          // Show network reminder message when device is offline
+                          if (!_wifiStatus!.isConnected)
+                            Padding(
+                              padding: const EdgeInsets.only(top: 4),
+                              child: Text(
+                                'Please ensure App and device are on the same network.',
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  color: Colors.red[700],
+                                  fontStyle: FontStyle.italic,
+                                ),
+                              ),
                             ),
-                          ),
                         ],
                       ),
                     ),

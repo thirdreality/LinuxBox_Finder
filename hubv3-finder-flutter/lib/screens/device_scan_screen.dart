@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../models/ble_device.dart';
 import '../services/ble_service.dart';
+import '../services/http_service.dart';
 import 'provision_screen.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -13,6 +14,7 @@ class DeviceScanScreen extends StatefulWidget {
 
 class _DeviceScanScreenState extends State<DeviceScanScreen> {
   final BleService _bleService = BleService();
+  final HttpService _httpService = HttpService();
   List<BleDevice> _devices = [];
   bool _isScanning = false;
   bool _isInitialized = false;
@@ -101,11 +103,11 @@ class _DeviceScanScreenState extends State<DeviceScanScreen> {
     );
   }
 
-  void _onConnectToDevice(BleDevice device) async {
+  void _onConnectToDevice(BleDevice device, {bool enableHttp = true, bool showPrompt = true}) async {
     // Check if there is an IP address and it is not 0
     final hasIp = device.ipAddress != null && device.ipAddress!.isNotEmpty && device.ipAddress != '0.0.0.0';
-    if (hasIp) {
-      // HTTP mode, directly configure HTTP Service and navigate to control page
+    if (hasIp && enableHttp) {
+      // HTTP mode, configure HTTP Service and check connectivity
       showDialog(
         context: context,
         barrierDismissible: false,
@@ -116,39 +118,116 @@ class _DeviceScanScreenState extends State<DeviceScanScreen> {
             children: [
               CircularProgressIndicator(),
               SizedBox(height: 16),
-              Text('Connecting via HTTP...'),
+              Text('Connecting to device by Http ...'),
             ],
           ),
         ),
       );
       try {
-        await _bleService.connectToDevice(device.id);
-        // Save device information to SharedPreferences
-        print('device.id = $device.id');
-        print('device.ipAddress = $device.ipAddress');
-        print('device.name = $device.name');
-
-        final prefs = await SharedPreferences.getInstance();
-        await prefs.setString('selected_device_id', device.id);
-        if (device.ipAddress != null) {
-          await prefs.setString('selected_device_ip', device.ipAddress!);
-        }
-        if (device.name != null) {
-          await prefs.setString('selected_device_name', device.name!);
-        }
-        // WiFi MAC is not available for now, can be extended
-        // Return to home page and refresh
+        // Configure HTTP service with device IP
+        _httpService.configure(device.ipAddress!);
+        
+        // Check HTTP connectivity
+        bool httpConnected = await _httpService.checkConnectivity();
+        
+        // Close the loading dialog
         if (mounted) {
+          Navigator.of(context).pop();
+        }
+        
+        if (httpConnected) {
+          // HTTP connection successful, save device information
+          print('HTTP connection successful');
+          print('device.id = ${device.id}');
+          print('device.ipAddress = ${device.ipAddress}');
+          print('device.name = ${device.name}');
+
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.setString('selected_device_id', device.id);
+          if (device.ipAddress != null) {
+            await prefs.setString('selected_device_ip', device.ipAddress!);
+          }
+          if (device.name != null) {
+            await prefs.setString('selected_device_name', device.name!);
+          }
+          // Return to home page and refresh
+          if (mounted) {
           Navigator.of(context).pushNamedAndRemoveUntil('/', (route) => false);
         }
+      } else {
+          // HTTP connection failed, show network configuration dialog
+          _showNetworkConfigDialog(device);
+        }
       } catch (e) {
-        if (mounted) Navigator.pop(context);
-        _showConnectionErrorDialog(e.toString(), device);
+        // Close the loading dialog if still open
+        if (mounted && Navigator.of(context).canPop()) {
+          Navigator.of(context).pop();
+        }
+        _showNetworkConfigDialog(device);
       }
     } else {
+
+      if(showPrompt) {
+        // Show prompt dialog for WiFi setup
+        showDialog(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('WiFi Setup'),
+            content: const Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('1. Press and hold the button on the device for 7-8 seconds until the LED turns yellow, then release'),
+                SizedBox(height: 16),
+                Text('2. Click Next to continue'),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () {
+                  Navigator.of(context).pop();
+                },
+                child: const Text('Back'),
+              ),
+              ElevatedButton(
+                onPressed: () {
+                  Navigator.of(context).pop();
+                  _onConnectToDevice(device, enableHttp: false, showPrompt: false);
+                },
+                child: const Text('Next'),
+              ),
+            ],
+          ),
+        );
+        return;
+      }
+
       // Connect BLE first, ensure BLE is connected before entering provisioning page
+      // Show loading dialog
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => const AlertDialog(
+          title: Text('Connecting'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              CircularProgressIndicator(),
+              SizedBox(height: 16),
+              Text('Connecting to device ...'),
+            ],
+          ),
+        ),
+      );
+      
       try {
-        await _bleService.connectToDevice(device.id);
+        await _bleService.connectToDevice(device.id, enableHttp: false);
+        
+        // Close the loading dialog
+        if (mounted && Navigator.of(context).canPop()) {
+          Navigator.of(context).pop();
+        }
+        
         // After successful connection, navigate to ProvisionScreen
         final result = await Navigator.push(
           context,
@@ -158,20 +237,63 @@ class _DeviceScanScreenState extends State<DeviceScanScreen> {
         );
         // Provisioning success, saving info and navigation logic handled in provision_screen, no need to navigate here
       } catch (e) {
+        // Close the loading dialog if still open
+        if (mounted && Navigator.of(context).canPop()) {
+          Navigator.of(context).pop();
+        }
         _showConnectionErrorDialog(e.toString(), device);
       }
     }
   }
 
+  // Show network configuration dialog when HTTP connection fails
+  void _showNetworkConfigDialog(BleDevice device) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Network Connection Failed'),
+        content: const Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Please confirm if the app and device are on the same network.'),
+            SizedBox(height: 12),
+            Text('If you want to connect the device to a new WiFi network, please follow these steps:'),
+            SizedBox(height: 8),
+            Text('1. Press and hold the button on the device for 7-8 seconds until the LED turns yellow, then release'),
+            SizedBox(height: 8),
+            Text('2. Click Next to continue'),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.of(context).pop();
+            },
+            child: const Text('Back'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              Navigator.of(context).pop();
+              _onConnectToDevice(device, enableHttp: false, showPrompt: false);
+              //await _bleService.connectToDevice(device.id, enableHttp: false);
+            },
+            child: const Text('Next'),
+          ),
+        ],
+      ),
+    );
+  }
+
   void _showConnectionErrorDialog(String errorMessage, BleDevice device) {
     String errorTitle = 'Connection Failed';
     String errorDetails = errorMessage;
-    String errorGuide = '请尝试以下操作：\n- 确保设备已开机并在附近\n- 关闭并重新打开手机蓝牙\n- 重启应用程序';
+    String errorGuide = 'Please try the following:\n- Ensure the device is powered on and nearby\n- Turn off and on your phone\'s Bluetooth\n- Restart the application';
     
-    // 检查是否为 Android 错误码 133
+    // Check if it's Android error code 133
     if (errorMessage.contains('android-code: 133')) {
-      errorTitle = '蓝牙连接错误 (错误码: 133)';
-      errorDetails = '无法连接到设备，可能原因：\n1. 设备已被其他应用程序连接\n2. 设备不在范围内或已关闭\n3. 手机蓝牙存在问题';
+      errorTitle = 'Bluetooth Connection Error (Code: 133)';
+      errorDetails = 'Unable to connect to the device. Possible reasons:\n1. Device is connected to another application\n2. Device is out of range or powered off\n3. Phone Bluetooth has issues';
     }
     
     showDialog(
@@ -192,14 +314,14 @@ class _DeviceScanScreenState extends State<DeviceScanScreen> {
             onPressed: () {
               Navigator.of(context).pop();
             },
-            child: const Text('关闭'),
+            child: const Text('Close'),
           ),
           ElevatedButton(
             onPressed: () {
               Navigator.of(context).pop();
-              _onConnectToDevice(device);
+              _onConnectToDevice(device, enableHttp: false, showPrompt: false);
             },
-            child: const Text('重试连接'),
+            child: const Text('Retry Connection'),
           ),
         ],
       ),

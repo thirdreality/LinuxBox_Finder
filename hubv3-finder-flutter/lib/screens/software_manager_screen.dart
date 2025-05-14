@@ -26,6 +26,8 @@ class _SoftwareManagerScreenState extends State<SoftwareManagerScreen> {
   @override
   void initState() {
     super.initState();
+    // 确保在加载软件包之前配置 HTTP 服务的 IP 地址
+    HttpService().configure(widget.deviceIp);
     _loadSoftwarePackages();
   }
 
@@ -479,86 +481,7 @@ class _SoftwareManagerScreenState extends State<SoftwareManagerScreen> {
                 ],
               ],
             ],
-            const SizedBox(height: 12),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.end,
-              children: isInstalled
-                ? [
-                  OutlinedButton(
-                    child: const Text(
-                      'Enable',
-                      style: TextStyle(
-                        color: Colors.grey,
-                      ),
-                    ),
-                    style: OutlinedButton.styleFrom(
-                      minimumSize: const Size(60, 32),
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 0),
-                      side: const BorderSide(
-                        color: Colors.grey,
-                      ),
-                    ),
-                    // Disable the button if the software is already enabled
-                    onPressed: isEnabled ? null : () => _updateSoftwarePackage(packageId, 'enable'),
-                  ),
-                  const SizedBox(width: 8),
-                  OutlinedButton.icon(
-                    icon: const Icon(
-                      Icons.system_update,
-                      size: 16,
-                      color: Colors.green,
-                    ),
-                    label: const Text(
-                      'Upgrade',
-                      style: TextStyle(
-                        color: Colors.green,
-                      ),
-                    ),
-                    style: OutlinedButton.styleFrom(
-                      minimumSize: const Size(60, 32),
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 0),
-                      side: const BorderSide(
-                        color: Colors.green,
-                      ),
-                    ),
-                    onPressed: () => _updateSoftwarePackage(packageId, 'upgrade'),
-                  ),
-                  const SizedBox(width: 8),
-                  OutlinedButton.icon(
-                    icon: const Icon(
-                      Icons.delete_outline,
-                      size: 16,
-                      color: Colors.red,
-                    ),
-                    label: const Text(
-                      'Uninstall',
-                      style: TextStyle(
-                        color: Colors.red,
-                      ),
-                    ),
-                    style: OutlinedButton.styleFrom(
-                      minimumSize: const Size(60, 32),
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 0),
-                      side: const BorderSide(
-                        color: Colors.red,
-                      ),
-                    ),
-                    onPressed: () => _updateSoftwarePackage(packageId, 'uninstall'),
-                  ),
-                ]
-                : [
-                    // Install button
-                    ElevatedButton.icon(
-                      icon: const Icon(Icons.download, size: 16),
-                      label: const Text('Install'),
-                      style: ElevatedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 0),
-                        minimumSize: const Size(60, 32),
-                      ),
-                      onPressed: () => _updateSoftwarePackage(packageId, 'install'),
-                    ),
-                  ],
-            ),
+            // Removed enable/disable, upgrade, and install/uninstall buttons
           ],
         ),
       ),
