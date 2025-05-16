@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'dart:convert';
 import '../models/ble_device.dart';
 import '../services/ble_service.dart';
 import '../services/http_service.dart';
@@ -118,7 +119,7 @@ class _DeviceScanScreenState extends State<DeviceScanScreen> {
             children: [
               CircularProgressIndicator(),
               SizedBox(height: 16),
-              Text('Connecting to device by Http ...'),
+              Text('Connecting to device by ip address ...'),
             ],
           ),
         ),
@@ -127,20 +128,28 @@ class _DeviceScanScreenState extends State<DeviceScanScreen> {
         // Configure HTTP service with device IP
         _httpService.configure(device.ipAddress!);
         
-        // Check HTTP connectivity
-        bool httpConnected = await _httpService.checkConnectivity();
+        // Get WiFi status instead of just checking connectivity
+        final wifiStatusResponse = await _httpService.getWifiStatus();
+        final wifiStatus = jsonDecode(wifiStatusResponse);
         
         // Close the loading dialog
         if (mounted) {
           Navigator.of(context).pop();
         }
         
-        if (httpConnected) {
+        if (wifiStatus['connected'] == true) {
           // HTTP connection successful, save device information
           print('HTTP connection successful');
           print('device.id = ${device.id}');
           print('device.ipAddress = ${device.ipAddress}');
           print('device.name = ${device.name}');
+          print('WiFi SSID = ${wifiStatus['ssid']}');
+          
+          // Save the SSID to SharedPreferences
+          if (wifiStatus['ssid'] != null && wifiStatus['ssid'].toString().isNotEmpty) {
+            final prefs = await SharedPreferences.getInstance();
+            await prefs.setString('selected_ssid', wifiStatus['ssid']);
+          }
 
           final prefs = await SharedPreferences.getInstance();
           await prefs.setString('selected_device_id', device.id);
@@ -172,12 +181,18 @@ class _DeviceScanScreenState extends State<DeviceScanScreen> {
         showDialog(
           context: context,
           builder: (context) => AlertDialog(
-            title: const Text('WiFi Setup'),
+            title: const Text('WiFi provision'),
             content: const Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('1. Press and hold the button on the device for 7-8 seconds until the LED turns yellow, then release'),
+                Text.rich(TextSpan(
+                  children: [
+                    TextSpan(text: '1. Press and hold the button on the device for 7-8 seconds until the LED changes from GREEN to '),
+                    TextSpan(text: 'YELLOW', style: TextStyle(fontWeight: FontWeight.bold)),
+                    TextSpan(text: ', then release the button'),
+                  ],
+                )),
                 SizedBox(height: 16),
                 Text('2. Click Next to continue'),
               ],
@@ -247,22 +262,42 @@ class _DeviceScanScreenState extends State<DeviceScanScreen> {
   }
 
   // Show network configuration dialog when HTTP connection fails
-  void _showNetworkConfigDialog(BleDevice device) {
+  void _showNetworkConfigDialog(BleDevice device) async {
+    // Get the saved SSID from SharedPreferences
+    final prefs = await SharedPreferences.getInstance();
+    final savedSsid = prefs.getString('selected_ssid') ?? 'Unknown';
+    
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Network Connection Failed'),
-        content: const Column(
+        title: const Text('WiFi provision'),
+        content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Please confirm if the app and device are on the same network.'),
+            Text.rich(TextSpan(
+              children: [
+                TextSpan(text: 'If you want to connect to an existing device, please confirm that the App and device are connected to the same wireless network: '),
+                TextSpan(text: savedSsid, style: TextStyle(fontWeight: FontWeight.bold)),
+              ],
+            )),
             SizedBox(height: 12),
-            Text('If you want to connect the device to a new WiFi network, please follow these steps:'),
+            Text('If you want to connect this device to a new wireless network, please follow these steps:'),
             SizedBox(height: 8),
-            Text('1. Press and hold the button on the device for 7-8 seconds until the LED turns yellow, then release'),
+            Text.rich(TextSpan(
+              children: [
+                TextSpan(text: '1. Press and hold the button on the device for 7-8 seconds until the LED changes from GREEN to '),
+                TextSpan(text: 'YELLOW', style: TextStyle(fontWeight: FontWeight.bold)),
+                TextSpan(text: ', then release the button'),
+              ],
+            )),
             SizedBox(height: 8),
-            Text('2. Click Next to continue'),
+            Text.rich(TextSpan(
+              children: [
+                TextSpan(text: '2. Click '),
+                TextSpan(text: 'Next', style: TextStyle(fontWeight: FontWeight.bold)),
+              ],
+            )),
           ],
         ),
         actions: [

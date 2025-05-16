@@ -228,11 +228,36 @@ class _HomeScreenState extends State<HomeScreen> {
     try {
       switch (command) {
         case 'reboot':
-          // 设备重启
-          await HttpService().sendCommand('reboot');
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Reboot command sent.')),
+          // 设备重启 - Show confirmation dialog first
+          final confirmed = await showDialog<bool>(
+            context: context,
+            builder: (context) => AlertDialog(
+              title: const Text('Reboot Device'),
+              content: const Text('Are you sure you want to reboot the device?'),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(false),
+                  child: const Text('Cancel'),
+                ),
+                ElevatedButton(
+                  onPressed: () => Navigator.of(context).pop(true),
+                  child: const Text('Reboot'),
+                ),
+              ],
+            ),
           );
+          
+          if (confirmed == true) {
+            await HttpService().sendCommand('reboot');
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('Reboot command sent.'),
+                  backgroundColor: Colors.green,
+                ),
+              );
+            }
+          }
           break;
         case 'software_manager':
           // 跳转到软件管理页面
@@ -278,9 +303,14 @@ class _HomeScreenState extends State<HomeScreen> {
                   onPressed: () async {
                     Navigator.of(context).pop();
                     await HttpService().sendCommand('factory_reset');
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Factory Reset command sent.')),
-                    );
+                    if (mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('Factory Reset command sent.'),
+                          backgroundColor: Colors.green,
+                        ),
+                      );
+                    }
                   },
                   child: const Text('Reset', style: TextStyle(color: Colors.red)),
                 ),

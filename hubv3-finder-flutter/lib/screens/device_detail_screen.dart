@@ -24,11 +24,41 @@ class DeviceDetailScreen extends StatefulWidget {
 class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
   late Future<Map<String, dynamic>> _deviceInfoFuture;
   bool _isRefreshing = false;
+  bool _isLoading = true;
+  String? _errorMessage;
+  
+  // Initial device information
+  late Map<String, dynamic> _initialInfo;
 
   @override
   void initState() {
     super.initState();
+    // Set up initial information immediately
+    _initialInfo = {
+      'Device Name': widget.deviceName ?? 'Unknown',
+      'Device ID': widget.deviceId,
+      'Device IP': widget.deviceIp,
+    };
+    
+    // Get SSID from SharedPreferences
+    _loadSavedSsid();
+    
+    // Start fetching additional information
     _deviceInfoFuture = _fetchDeviceInfo();
+  }
+  
+  Future<void> _loadSavedSsid() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final ssid = prefs.getString('selected_ssid');
+      if (ssid != null && ssid.isNotEmpty) {
+        setState(() {
+          _initialInfo['WiFi SSID'] = ssid;
+        });
+      }
+    } catch (e) {
+      // Ignore errors when loading SSID
+    }
   }
   
   // Method to refresh device information
@@ -45,19 +75,31 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
   }
 
   Future<Map<String, dynamic>> _fetchDeviceInfo() async {
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
+    
     try {
       HttpService().configure(widget.deviceIp);
-      final resp = await HttpService().getSystemInfo();
+      final resp = await HttpService().getSystemInfo(timeout: 10);
       final Map<String, dynamic> data = resp.isNotEmpty ? Map<String, dynamic>.from(jsonDecode(resp)) : {};
+      
+      setState(() {
+        _isLoading = false;
+      });
+      
       return {
         ...data,
       };
     } catch (e) {
+      setState(() {
+        _isLoading = false;
+        _errorMessage = 'Failed to fetch device info: $e';
+      });
+      
       return {
-        'Device Name': widget.deviceName ?? 'Unknown',
-        'Device ID': widget.deviceId,
-        'Device IP': widget.deviceIp,
-        'Error': 'Failed to fetch device info: $e',
+        ..._initialInfo,
       };
     }
   }
@@ -112,47 +154,171 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
             child: FutureBuilder<Map<String, dynamic>>(
               future: _deviceInfoFuture,
               builder: (context, snapshot) {
-                if (snapshot.connectionState == ConnectionState.waiting) {
-                  return const Center(child: CircularProgressIndicator());
+                // Show loading state with initial information
+                if (_isLoading) {
+                  return ListView(
+                    padding: const EdgeInsets.all(16.0),
+                    children: [
+                      // Display initial information
+                      ..._initialInfo.entries.map((entry) => Column(
+                        children: [
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Expanded(
+                                flex: 2,
+                                child: Text(
+                                  entry.key,
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 16,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                flex: 3,
+                                child: Text(
+                                  entry.value.toString(),
+                                  style: const TextStyle(
+                                    fontSize: 16,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const Divider(height: 24),
+                        ],
+                      )).toList(),
+                      
+                      // Loading indicator
+                      const Center(
+                        child: Column(
+                          children: [
+                            SizedBox(height: 16),
+                            CircularProgressIndicator(),
+                            SizedBox(height: 16),
+                            Text('Loading additional information...'),
+                          ],
+                        ),
+                      ),
+                    ],
+                  );
                 }
-                if (snapshot.hasError) {
-                  return Center(
-                      child: Text('Failed to load: \\${snapshot.error}'));
+                
+                // Show error message with initial information
+                if (_errorMessage != null) {
+                  return ListView(
+                    padding: const EdgeInsets.all(16.0),
+                    children: [
+                      // Display initial information
+                      ..._initialInfo.entries.map((entry) => Column(
+                        children: [
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Expanded(
+                                flex: 2,
+                                child: Text(
+                                  entry.key,
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 16,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                flex: 3,
+                                child: Text(
+                                  entry.value.toString(),
+                                  style: const TextStyle(
+                                    fontSize: 16,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const Divider(height: 24),
+                        ],
+                      )).toList(),
+                      
+                      // Error message
+                      Container(
+                        padding: const EdgeInsets.all(16),
+                        margin: const EdgeInsets.only(top: 16),
+                        decoration: BoxDecoration(
+                          color: Colors.red.shade50,
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: Colors.red.shade200),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Row(
+                              children: [
+                                Icon(Icons.error_outline, color: Colors.red),
+                                SizedBox(width: 8),
+                                Text(
+                                  'Error',
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.red,
+                                    fontSize: 16,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 8),
+                            Text(_errorMessage!),
+                          ],
+                        ),
+                      ),
+                    ],
+                  );
                 }
-                final info = snapshot.data ?? {};
-                return ListView.separated(
-                  padding: const EdgeInsets.all(16.0),
-                  itemCount: info.entries.length,
-                  separatorBuilder: (context, index) => const Divider(height: 24),
-                  itemBuilder: (context, index) {
-                    final entry = info.entries.elementAt(index);
-                    return Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Expanded(
-                          flex: 2,
-                          child: Text(
-                            entry.key,
-                            style: const TextStyle(
-                              fontWeight: FontWeight.bold,
-                              fontSize: 16,
+                
+                // Show successful network request data (no initial information)
+                if (snapshot.connectionState == ConnectionState.done && !snapshot.hasError) {
+                  final info = snapshot.data ?? {};
+                  
+                  return ListView.separated(
+                    padding: const EdgeInsets.all(16.0),
+                    itemCount: info.entries.length,
+                    separatorBuilder: (context, index) => const Divider(height: 24),
+                    itemBuilder: (context, index) {
+                      final entry = info.entries.elementAt(index);
+                      return Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Expanded(
+                            flex: 2,
+                            child: Text(
+                              entry.key,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 16,
+                              ),
                             ),
                           ),
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          flex: 3,
-                          child: Text(
-                            entry.value.toString(),
-                            style: const TextStyle(
-                              fontSize: 16,
+                          const SizedBox(width: 8),
+                          Expanded(
+                            flex: 3,
+                            child: Text(
+                              entry.value.toString(),
+                              style: const TextStyle(
+                                fontSize: 16,
+                              ),
                             ),
                           ),
-                        ),
-                      ],
-                    );
-                  },
-                );
+                        ],
+                      );
+                    },
+                  );
+                }
+                
+                // Show a loading indicator if we're still waiting for data
+                return const Center(child: CircularProgressIndicator());
               },
             ),
           ),
@@ -166,7 +332,8 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
                   width: double.infinity,
                   child: OutlinedButton(
                     style: OutlinedButton.styleFrom(
-                      foregroundColor: Colors.black,
+                      foregroundColor: Colors.red,  // Changed to red
+                      side: const BorderSide(color: Colors.red),  // Red border
                       minimumSize: const Size.fromHeight(16),
                       padding: EdgeInsets.zero,
                     ),
@@ -174,7 +341,7 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
                       _onClearCurrentHub(context);
                     },
                     child: const Text('Unbind Device',
-                        style: TextStyle(fontSize: 16)),
+                        style: TextStyle(fontSize: 16, color: Colors.red)),  // Red text
                   ),
                 ),
               ],

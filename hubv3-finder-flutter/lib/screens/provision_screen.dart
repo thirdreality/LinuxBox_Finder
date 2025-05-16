@@ -122,22 +122,42 @@ class _ProvisionScreenState extends State<ProvisionScreen> {
     setState(() {
       _isLoading = true;
     });
-    try {
-      // Call BLE provisioning interface with restore=false
-      final bleService = BleService();
-      final result = await bleService.configureWiFi(
-        _selectedSSID ?? '',
-        _passwordController.text,
-        false
-      );
-      
-      // Process the result
-      final Map<String, dynamic> json = result is String ? Map<String, dynamic>.from(jsonDecode(result)) : {};
-      if (json['connected'] == true && json['ip_address'] != null && json['ip_address'].toString().isNotEmpty) {
+    
+    int retryCount = 0;
+    const maxRetries = 3;
+    String? errorMessage;
+    
+    while (retryCount < maxRetries) {
+      try {
+        // Call BLE provisioning interface with restore=false
+        final bleService = BleService();
+        
+        // If this is a retry attempt, update the dialog
+        if (retryCount > 0) {
+          _closeDialogIfOpen();
+          _showLoadingDialog('Reconnecting to device (Attempt ${retryCount + 1}/${maxRetries})...');
+          // Add a small delay before retry
+          await Future.delayed(const Duration(milliseconds: 500));
+        }
+        
+        final result = await bleService.configureWiFi(
+          _selectedSSID ?? '',
+          _passwordController.text,
+          false
+        );
+        
+        // Process the result - successful connection, exit retry loop
+        final Map<String, dynamic> json = result is String ? Map<String, dynamic>.from(jsonDecode(result)) : {};
+        if (json['connected'] == true && json['ip_address'] != null && json['ip_address'].toString().isNotEmpty) {
         // Provisioning successful, save information
         final prefs = await SharedPreferences.getInstance();
         await prefs.setString('selected_device_ip', json['ip_address']);
         await prefs.setString('selected_device_id', widget.deviceId);
+        
+        // Save the selected SSID
+        if (_selectedSSID != null && _selectedSSID!.isNotEmpty) {
+          await prefs.setString('selected_ssid', _selectedSSID!);
+        }
         
         // Get current device name (optional, retrieve from BLEService or pass it)
         String? deviceName;
@@ -167,19 +187,43 @@ class _ProvisionScreenState extends State<ProvisionScreen> {
         if (mounted) {
           Navigator.of(context).pushNamedAndRemoveUntil('/', (route) => false);
         }
+        // Success! Break out of the retry loop
+        break;
       } else {
-        // WiFi configuration failed
-        _showErrorSnackBar('Failed to configure WiFi. Please check the password and try again.');
+        // WiFi configuration failed but not due to BLE connection issue
+        errorMessage = 'Failed to configure WiFi. Please check the password and try again.';
+        break; // Exit retry loop for non-BLE errors
       }
-    } catch (e) {
-      print('Error configuring WiFi networks: $e');
-      _showErrorSnackBar('Error: $e');
-    } finally {
-      setState(() {
-        _isLoading = false;
-      });
-      _closeDialogIfOpen(); // Close the WiFi configuration dialog
+      } catch (e) {
+        print('Error configuring WiFi networks: $e');
+        errorMessage = 'Error: $e';
+        
+        // Check if this is a BLE connection error that we should retry
+        if (e.toString().contains('FlutterBluePlusException') && 
+            e.toString().contains('device is not connected')) {
+          retryCount++;
+          if (retryCount < maxRetries) {
+            print('BLE connection lost. Retrying (${retryCount}/$maxRetries)...');
+            continue; // Try again
+          } else {
+            errorMessage = 'Failed to connect to device after $maxRetries attempts. Please try again.';
+          }
+        } else {
+          // Not a BLE connection error, don't retry
+          break;
+        }
+      }
     }
+    
+    // After all retries, check if we had an error
+    if (errorMessage != null) {
+      _showErrorSnackBar(errorMessage);
+    }
+    
+    setState(() {
+      _isLoading = false;
+    });
+    _closeDialogIfOpen(); // Close the WiFi configuration dialog
   }
   
   void _showErrorSnackBar(String message) {
