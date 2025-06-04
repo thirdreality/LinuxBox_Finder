@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'package:crypto/crypto.dart';
 
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -106,12 +107,12 @@ class BleService {
             // Check manufacturer data, try to extract IP address
             String? ipAddress;
             if (result.advertisementData.manufacturerData.isNotEmpty) {
-              // Manufacturer ID 0x0133 data contains IP address
+              // Manufacturer ID 0x0133 data contains encrypted IP address
               final data = result.advertisementData.manufacturerData[0x0133];
-              if (data != null && data.length >= 4) {
-                // Extract IP address, format is 4 bytes [192, 168, 1, 100]
-                ipAddress = '${data[0]}.${data[1]}.${data[2]}.${data[3]}';
-                print('Extracted device IP address: $ipAddress');
+              if (data != null && data.length >= 5) { // Now 5 bytes (4 IP bytes + 1 checksum byte)
+                // Decrypt the IP address
+                ipAddress = _decryptIpAddress(data);
+                print('Decrypted device IP address: $ipAddress');
               }
             }
 
@@ -482,6 +483,46 @@ class BleService {
         print('Error when disconnecting: $e');
       }
       _connectedDevice = null;
+    }
+  }
+
+  // Decrypt IP address from encrypted bytes
+  String _decryptIpAddress(List<int> encryptedData) {
+    try {
+      // Check if we have at least 5 bytes (4 for IP + 1 for checksum)
+      if (encryptedData.length < 5) {
+        print('Invalid encrypted data length: ${encryptedData.length}');
+        return '0.0.0.0';
+      }
+      
+      // Extract encrypted bytes and checksum
+      List<int> encryptedBytes = encryptedData.sublist(0, 4);
+      int receivedChecksum = encryptedData[4];
+      
+      // Calculate checksum to verify integrity
+      int calculatedChecksum = encryptedBytes.reduce((a, b) => a + b) & 0xFF;
+      if (calculatedChecksum != receivedChecksum) {
+        print('Checksum verification failed: calculated=$calculatedChecksum, received=$receivedChecksum');
+        return '0.0.0.0';
+      }
+      
+      // Use the same encryption key as the server
+      final encryptionKey = utf8.encode('ThirdRealityKey');
+      
+      // Generate the XOR mask using MD5 hash
+      final keyHash = md5.convert(encryptionKey).bytes.sublist(0, 4);
+      
+      // Decrypt the IP bytes using XOR with the key hash
+      List<int> decryptedBytes = [];
+      for (int i = 0; i < 4; i++) {
+        decryptedBytes.add(encryptedBytes[i] ^ keyHash[i]);
+      }
+      
+      // Format as IP address string
+      return '${decryptedBytes[0]}.${decryptedBytes[1]}.${decryptedBytes[2]}.${decryptedBytes[3]}';
+    } catch (e) {
+      print('Error decrypting IP address: $e');
+      return '0.0.0.0';
     }
   }
 

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'screens/home_screen.dart';
+import 'screens/package_manager_screen.dart';
 
 void main() {
   runApp(const MyApp());
@@ -28,7 +29,13 @@ class MyApp extends StatelessWidget {
       ),
       routes: {
         '/': (context) => const HomeScreen(),
-        
+        '/packageManager': (context) {
+          final args = ModalRoute.of(context)!.settings.arguments as Map<String, String>;
+          return PackageManagerScreen(
+            packageId: args['packageId']!,
+            deviceIp: args['deviceIp']!,
+          );
+        },
       },
       initialRoute: '/',
     );

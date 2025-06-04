@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:async';
 import 'package:http/http.dart' as http;
 import 'package:crypto/crypto.dart';
+import '../models/browser_url.dart';
 
 class HttpService {
   // Singleton instance
@@ -160,6 +161,41 @@ class HttpService {
     }
   }
 
+  // Get Browser Info
+  Future<List<BrowserUrl>> getBrowserInfo({int timeout = 10}) async {
+    if (_baseUrl == null) {
+      throw Exception('HTTP Service not configured with a device IP');
+    }
+
+    try {
+      final response = await http.get(
+        Uri.parse('$_baseUrl/api/browser/info'),
+      ).timeout(Duration(seconds: timeout));
+
+      if (response.statusCode == 200) {
+        final Map<String, dynamic> data = jsonDecode(response.body);
+        if (data.containsKey('browser_url') && data['browser_url'] is List) {
+          final List<dynamic> browserUrlList = data['browser_url'];
+          return browserUrlList
+              .map((item) => BrowserUrl.fromJson(item as Map<String, dynamic>))
+              .toList();
+        } else {
+          // If browser_url is not present or not a list, return an empty list or handle as an error
+          return []; // Or throw Exception('Invalid format for browser_url');
+        }
+      } else {
+        throw Exception('Failed to get browser info: ${response.statusCode}');
+      }
+    } catch (e) {
+      print('Error getting browser info: $e');
+      if (e is TimeoutException) {
+        throw Exception('Device response timed out while fetching browser info.');
+      } else {
+        throw Exception('Error getting browser info: $e');
+      }
+    }
+  }
+
   // Check HTTP connectivity to the device
   Future<bool> checkConnectivity() async {
     if (_baseUrl == null) {
@@ -204,18 +240,12 @@ class HttpService {
           "software": [
           ]
         },
-        "zigbee2mqtt": {
-          "name": "zigbee2mqtt",
+        "openhab": {
+          "name": "OpneHab",
           "installed": false,
           "enabled": false,
           "software": [
           ]
-        },
-        "homekitbridge": {
-          "name": "Homekit Bridge",
-          "installed": false,
-          "enabled": false,
-          "software": []
         }
       };
     }
@@ -277,13 +307,8 @@ class HttpService {
           "service": [
           ]
         },
-        "zigbee2mqtt": {
-          "name": "zigbee2mqtt",
-          "service": [
-          ]
-        },
-        "homekitbridge": {
-          "name": "homekitbridge",
+        "openhab": {
+          "name": "OpenHab",
           "service": [
           ]
         }
@@ -298,8 +323,8 @@ class HttpService {
     }
     
     // Validate service parameter
-    if (!['homeassistant_core', 'zigbee2mqtt', 'homekitbridge'].contains(service)) {
-      throw Exception('Invalid service parameter. Must be one of: homeassistant_core, zigbee2mqtt, homekitbridge');
+    if (!['homeassistant_core', 'openhab'].contains(service)) {
+      throw Exception('Invalid service parameter. Must be one of: homeassistant_core, openhab');
     }
 
     try {
@@ -321,13 +346,8 @@ class HttpService {
           "service": [
           ]
         },
-        "zigbee2mqtt": {
-          "name": "zigbee2mqtt",
-          "service": [
-          ]
-        },
-        "homekitbridge": {
-          "name": "homekitbridge",
+        "openhab": {
+          "name": "OpenHab",
           "service": [
           ]
         }
@@ -363,6 +383,8 @@ class HttpService {
         'package': packageId,
         'service': serviceName
       });
+
+      print('sending Service param: $paramJson');
       final paramBase64 = base64Encode(utf8.encode(paramJson));
       paramMap['param'] = paramBase64;
       
@@ -429,6 +451,8 @@ class HttpService {
       final paramJson = jsonEncode({
         'package': packageId
       });
+
+      print('sending Software param: $paramJson');
       final paramBase64 = base64Encode(utf8.encode(paramJson));
       paramMap['param'] = paramBase64;
       
@@ -582,6 +606,74 @@ class HttpService {
         'success': true,
         'message': 'Software reset to default configuration'
       };
+    }
+  }
+
+  // Fetch Zigbee Info
+  Future<String?> fetchZigbeeInfo() async {
+    if (_baseUrl == null) {
+      throw Exception('HTTP Service not configured with a device IP');
+    }
+    final response = await http.get(Uri.parse('$_baseUrl/api/zigbee/info'));
+    if (response.statusCode == 200) {
+      final data = jsonDecode(response.body);
+      return data['zigbee'];
+    } else {
+      return null;
+    }
+  }
+
+  // Send Zigbee Command
+  Future<void> sendZigbeeCommand(String action) async {
+    if (_baseUrl == null) {
+      throw Exception('HTTP Service not configured with a device IP');
+    }
+
+    try {
+      // Construct parameter map
+      Map<String, String> paramMap = {};
+      paramMap['action'] = action;
+
+      // Add timestamp
+      int tvalue = DateTime.now().millisecondsSinceEpoch;
+      paramMap['_ct'] = tvalue.toString();
+
+      // Sort keys and create signature
+      var sortedKeys = paramMap.keys.toList()..sort();
+      var signParts = <String>[];
+      for (var k in sortedKeys) {
+        signParts.add('${Uri.encodeComponent(k)}=${Uri.encodeComponent(paramMap[k]!)}');
+      }
+      String signStr = signParts.join('&');
+      String md5Input = '$signStr&ThirdReality';
+      String sig = md5.convert(utf8.encode(md5Input)).toString();
+
+      // Add signature to parameters
+      paramMap['_sig'] = sig;
+
+      // Construct body string
+      List<String> orderedKeys = ['action', '_ct', '_sig'];
+      var bodyParts = <String>[];
+      for (var k in orderedKeys) {
+        if (paramMap.containsKey(k)) {
+          bodyParts.add('${Uri.encodeComponent(k)}=${Uri.encodeComponent(paramMap[k]!)}');
+        }
+      }
+      String bodyStr = bodyParts.join('&');
+      print('sending Zigbee command: $bodyStr');
+
+      final response = await http.post(
+        Uri.parse('$_baseUrl/api/zigbee/command'),
+        headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+        body: bodyStr,
+      ).timeout(const Duration(seconds: 10));
+
+      if (response.statusCode != 200) {
+        throw Exception('Failed to send Zigbee command: ${response.statusCode}');
+      }
+    } catch (e) {
+      print('Error sending Zigbee command: $e');
+      throw Exception('Failed to send Zigbee command: $e');
     }
   }
 }

@@ -7,6 +7,8 @@ import 'device_scan_screen.dart';
 import 'device_detail_screen.dart';
 import 'software_manager_screen.dart';
 import 'firmware_manager_screen.dart';
+import 'package:url_launcher/url_launcher.dart';
+import '../models/browser_url.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({Key? key}) : super(key: key);
@@ -23,6 +25,10 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _loadingDevice = false;
   String? _restoreResult;
 
+  List<BrowserUrl> _browserUrls = [];
+  bool _loadingBrowserUrls = false;
+  String? _browserUrlsError;
+
   @override
   void initState() {
     super.initState();
@@ -30,9 +36,15 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _loadSelectedDevice() async {
-    setState(() {
-      _loadingDevice = true;
-    });
+    if (mounted) {
+      setState(() {
+        _loadingDevice = true;
+        _wifiStatus = null; // Reset wifi status
+        _browserUrls = []; // Reset browser URLs
+        _loadingBrowserUrls = false;
+        _browserUrlsError = null;
+      });
+    }
     final prefs = await SharedPreferences.getInstance();
     _selectedDeviceId = prefs.getString('selected_device_id');
     _selectedDeviceIp = prefs.getString('selected_device_ip');
@@ -42,11 +54,25 @@ class _HomeScreenState extends State<HomeScreen> {
       try {
         final wifiStatusJson = await HttpService().getWifiStatus(ltime: 3);
         _wifiStatus = WiFiConnectionStatus.fromJson(wifiStatusJson);
+        if (_wifiStatus != null && _wifiStatus!.isConnected) {
+          await _fetchBrowserUrls();
+        } else {
+          if (mounted) {
+            setState(() {
+              _browserUrls = []; // Clear if not connected
+            });
+          }
+        }
       } catch (e) {
         _wifiStatus = WiFiConnectionStatus.error('Failed to get WiFi status');
       }
     } else {
       _wifiStatus = null;
+      if (mounted) {
+        setState(() {
+          _browserUrls = []; // Clear if no IP
+        });
+      }
     }
     setState(() {
       _loadingDevice = false;
@@ -414,6 +440,96 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  Future<void> _fetchBrowserUrls() async {
+    if (_selectedDeviceIp == null) return;
+
+    if (mounted) {
+      setState(() {
+        _loadingBrowserUrls = true;
+        _browserUrlsError = null;
+      });
+    }
+
+    try {
+      final urls = await HttpService().getBrowserInfo();
+      if (mounted) {
+        setState(() {
+          _browserUrls = urls;
+          _loadingBrowserUrls = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _browserUrlsError = e.toString();
+          _loadingBrowserUrls = false;
+        });
+      }
+    }
+  }
+
+  Widget _buildBrowserUrlCards() {
+    if (_loadingBrowserUrls) {
+      return const Padding(
+        padding: EdgeInsets.all(16.0),
+        child: Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    if (_browserUrlsError != null) {
+      return Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Text('Error loading browser URLs: $_browserUrlsError', style: const TextStyle(color: Colors.red)),
+      );
+    }
+
+    if (_browserUrls.isEmpty) {
+      return const SizedBox.shrink(); // No URLs to show, or not applicable
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+          child: Text(
+            'Device Web Interfaces:',
+            style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+          ),
+        ),
+        ListView.builder(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          itemCount: _browserUrls.length,
+          itemBuilder: (context, index) {
+            final browserUrl = _browserUrls[index];
+            return Card(
+              margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+              child: ListTile(
+                leading: const Icon(Icons.travel_explore, color: Colors.blueAccent),
+                title: Text(browserUrl.name, style: const TextStyle(fontWeight: FontWeight.w500)),
+                subtitle: Text(browserUrl.url, overflow: TextOverflow.ellipsis, style: TextStyle(color: Colors.grey[600])),
+                trailing: const Icon(Icons.arrow_forward_ios, size: 16),
+                onTap: () async {
+                  final uri = Uri.parse(browserUrl.url);
+                  if (await canLaunchUrl(uri)) {
+                    await launchUrl(uri, mode: LaunchMode.externalApplication);
+                  } else {
+                    if (mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text('Could not launch ${browserUrl.url}')),
+                      );
+                    }
+                  }
+                },
+              ),
+            );
+          },
+        ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -433,6 +549,7 @@ class _HomeScreenState extends State<HomeScreen> {
           physics: const AlwaysScrollableScrollPhysics(),
           children: [
             _buildDeviceCard(),
+            if (_wifiStatus != null && _wifiStatus!.isConnected) _buildBrowserUrlCards(),
             _buildCommandList(),
           ],
         ),

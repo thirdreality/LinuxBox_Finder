@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../services/http_service.dart';
 import 'dart:convert';
+import 'package_manager_screen.dart'; // Import the PackageManagerScreen
 
 class SoftwareManagerScreen extends StatefulWidget {
   final String deviceIp;
@@ -15,7 +16,6 @@ class _SoftwareManagerScreenState extends State<SoftwareManagerScreen> {
   bool _isLoading = true;
   Map<String, dynamic>? _softwarePackages;
   String? _errorMessage;
-  bool _isResetting = false;
   
   // Map to track which packages have their services expanded
   final Map<String, bool> _showServices = {};
@@ -34,6 +34,7 @@ class _SoftwareManagerScreenState extends State<SoftwareManagerScreen> {
   Future<void> _loadSoftwarePackages() async {
     setState(() {
       _isLoading = true;
+      _showServices.clear();
       _errorMessage = null;
     });
 
@@ -104,52 +105,6 @@ class _SoftwareManagerScreenState extends State<SoftwareManagerScreen> {
     
     // Then enable the selected package
     await _updateSoftwarePackage(packageId, 'enable');
-  }
-
-  Future<void> _resetToDefault() async {
-    // Show confirmation dialog
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Reset to Default'),
-        content: const Text(
-            'Are you sure you want to reset all software packages to their default configuration?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('Reset', style: TextStyle(color: Colors.red)),
-          ),
-        ],
-      ),
-    );
-
-    if (confirmed != true) return;
-
-    setState(() {
-      _isResetting = true;
-    });
-
-    try {
-      await HttpService().resetSoftwareToDefaultLegacy();
-      
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Software reset to default configuration')),
-      );
-      
-      await _loadSoftwarePackages();
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to reset software: $e')),
-      );
-    } finally {
-      setState(() {
-        _isResetting = false;
-      });
-    }
   }
 
   Future<void> _loadServiceInfo(String packageId) async {
@@ -351,7 +306,7 @@ class _SoftwareManagerScreenState extends State<SoftwareManagerScreen> {
                 Row(
                   children: [
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
                       decoration: BoxDecoration(
                         color: isInstalled ? Colors.green[100] : Colors.grey[200],
                         borderRadius: BorderRadius.circular(4),
@@ -359,15 +314,16 @@ class _SoftwareManagerScreenState extends State<SoftwareManagerScreen> {
                       child: Text(
                         isInstalled ? 'Installed' : 'Not Installed',
                         style: TextStyle(
+                          fontSize: 11,
                           color: isInstalled ? Colors.green[800] : Colors.grey[800],
                           fontWeight: FontWeight.w500,
                         ),
                       ),
                     ),
-                    if (isInstalled) ...[  
-                      const SizedBox(width: 8),
+                    const SizedBox(width: 4),
+                    if (isInstalled) ...[
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
                         decoration: BoxDecoration(
                           color: isEnabled ? Colors.blue[100] : Colors.grey[200],
                           borderRadius: BorderRadius.circular(4),
@@ -375,11 +331,25 @@ class _SoftwareManagerScreenState extends State<SoftwareManagerScreen> {
                         child: Text(
                           isEnabled ? 'Enabled' : 'Disabled',
                           style: TextStyle(
+                            fontSize: 11,
                             color: isEnabled ? Colors.blue[800] : Colors.grey[800],
                             fontWeight: FontWeight.w500,
                           ),
                         ),
                       ),
+                      const SizedBox(width: 4),
+                      if (isInstalled && isEnabled) ...[
+                        IconButton(
+                          icon: const Icon(Icons.arrow_forward_ios, size: 16),
+                          onPressed: () {
+                            Navigator.pushNamed(
+                              context,
+                              '/packageManager',
+                              arguments: {'packageId': packageId, 'deviceIp': widget.deviceIp},
+                            );
+                          },
+                        ),
+                      ],
                     ],
                   ],
                 ),
@@ -481,7 +451,6 @@ class _SoftwareManagerScreenState extends State<SoftwareManagerScreen> {
                 ],
               ],
             ],
-            // Removed enable/disable, upgrade, and install/uninstall buttons
           ],
         ),
       ),
@@ -544,43 +513,31 @@ class _SoftwareManagerScreenState extends State<SoftwareManagerScreen> {
                           ],
                         ),
                       ),
-                      Container(
-                        padding: const EdgeInsets.all(16),
-                        decoration: BoxDecoration(
-                          color: Theme.of(context).scaffoldBackgroundColor,
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withOpacity(0.1),
-                              blurRadius: 4,
-                              offset: const Offset(0, -2),
-                            ),
-                          ],
-                        ),
-                        child: SizedBox(
-                          width: double.infinity,
-                          child: ElevatedButton(
-                            onPressed: _isResetting ? null : _resetToDefault,
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.red,
-                              foregroundColor: Colors.white,
-                              padding: const EdgeInsets.symmetric(vertical: 12),
-                            ),
-                            child: _isResetting
-                                ? const SizedBox(
-                                    height: 20,
-                                    width: 20,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                      valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                                    ),
-                                  )
-                                : const Text('Reset to Default'),
-                          ),
-                        ),
-                      ),
                     ],
                   ),
                 ),
+    );
+  }
+}
+
+class MyApp extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      title: 'Software Manager',
+      theme: ThemeData(
+        primarySwatch: Colors.blue,
+      ),
+      routes: {
+        '/packageManager': (context) {
+          final args = ModalRoute.of(context)!.settings.arguments as Map<String, String>;
+          return PackageManagerScreen(
+            packageId: args['packageId']!,
+            deviceIp: args['deviceIp']!,
+          );
+        },
+      },
+      home: SoftwareManagerScreen(deviceIp: '192.168.1.100'),
     );
   }
 }
