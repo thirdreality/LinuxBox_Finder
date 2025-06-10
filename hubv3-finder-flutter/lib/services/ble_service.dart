@@ -100,11 +100,13 @@ class BleService {
             continue;
           }
 
+          print('[1]find deviceName $deviceName');
+
           if (deviceName.contains('3RHUB-') ||
               result.advertisementData.serviceUuids.contains(SERVICE_UUID)) {
 
-            print('find deviceName $deviceName');
-            print('find deviceName: ${result.device.remoteId.str}');
+            print('[2]find deviceName $deviceName');
+            print('[2]find deviceName: ${result.device.remoteId.str}');
             
             // Check manufacturer data, try to extract IP address
             String? ipAddress;
