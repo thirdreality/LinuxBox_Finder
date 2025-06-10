@@ -56,7 +56,12 @@ class _HomeScreenState extends State<HomeScreen> {
         final wifiStatusJson = await HttpService().getWifiStatus(ltime: 3);
         _wifiStatus = WiFiConnectionStatus.fromJson(wifiStatusJson);
         if (_wifiStatus != null && _wifiStatus!.isConnected) {
-          await _fetchBrowserUrls();
+          try {
+            await _fetchBrowserUrls();
+          } catch (e) {
+            // Initial fetch failed, start background retries
+            _retryFetchBrowserUrls();
+          }
         } else {
           if (mounted) {
             setState(() {
@@ -75,9 +80,61 @@ class _HomeScreenState extends State<HomeScreen> {
         });
       }
     }
+    if (mounted) {
+      setState(() {
+        _loadingDevice = false;
+      });
+    }
+  }
+
+  Future<void> _fetchBrowserUrls() async {
+    if (!mounted) return;
     setState(() {
-      _loadingDevice = false;
+      _loadingBrowserUrls = true;
+      _browserUrlsError = null;
     });
+
+    try {
+      final urls = await HttpService().getBrowserInfo();
+      if (!mounted) return;
+      setState(() {
+        _browserUrls = urls;
+        _loadingBrowserUrls = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _loadingBrowserUrls = false;
+      });
+      throw e; // Re-throw to be caught by the caller
+    }
+  }
+
+  void _retryFetchBrowserUrls() async {
+    for (int i = 0; i < 3; i++) {
+      await Future.delayed(const Duration(seconds: 1));
+      if (!mounted) return;
+
+      try {
+        final urls = await HttpService().getBrowserInfo();
+        if (!mounted) return;
+        setState(() {
+          _browserUrls = urls;
+          _loadingBrowserUrls = false;
+          _browserUrlsError = null; // Clear error on success
+        });
+        return; // Success, exit retry loop
+      } catch (e) {
+        // Log retry error, continue to next attempt
+        if (i == 2) { // Last retry failed
+          if (!mounted) return;
+          setState(() {
+            _browserUrlsError = 'Failed to load browser URLs after retries.';
+            _loadingBrowserUrls = false;
+          });
+        }
+      }
+    }
   }
 
   Future<void> _saveSelectedDevice(
@@ -200,33 +257,29 @@ class _HomeScreenState extends State<HomeScreen> {
                                 'Device Status: ',
                                 style: const TextStyle(fontSize: 14),
                               ),
-                              Text(
-                                _wifiStatus!.isConnected
-                                    ? 'Online'
-                                    : 'Offline/Unavailable',
-                                style: TextStyle(
-                                  fontSize: 14,
-                                  color: _wifiStatus!.isConnected
-                                      ? Colors.green
-                                      : Colors.red,
-                                  fontWeight: FontWeight.bold,
+                              _wifiStatus!.isConnected
+                                  ? const Icon(Icons.check_circle,
+                                      color: Colors.green, size: 16)
+                                  : const Icon(Icons.error,
+                                      color: Colors.red, size: 16),
+                              const SizedBox(width: 4),
+                              Expanded(
+                                child: Text(
+                                  _wifiStatus!.statusMessage,
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    color: _wifiStatus!.isConnected
+                                        ? Colors.green
+                                        : Colors.red,
+                                  ),
+                                  overflow: TextOverflow.ellipsis,
                                 ),
                               ),
                             ],
                           ),
-                          // Show network reminder message when device is offline
-                          if (!_wifiStatus!.isConnected)
-                            Padding(
-                              padding: const EdgeInsets.only(top: 4),
-                              child: Text(
-                                'Please ensure App and device are on the same network.',
-                                style: TextStyle(
-                                  fontSize: 13,
-                                  color: Colors.red[700],
-                                  fontStyle: FontStyle.italic,
-                                ),
-                              ),
-                            ),
+                          if (_wifiStatus!.ssid != null && _wifiStatus!.ssid!.isNotEmpty)
+                            Text('SSID: ${_wifiStatus!.ssid!}',
+                                style: const TextStyle(fontSize: 14)),
                         ],
                       ),
                     ),
@@ -234,9 +287,8 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
             ),
             IconButton(
-              icon: const Icon(Icons.arrow_forward_ios, size: 22),
+              icon: const Icon(Icons.arrow_forward_ios, size: 16),
               onPressed: _goToDetail,
-              tooltip: 'Device Details',
             ),
           ],
         ),
@@ -245,89 +297,55 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _goToDetail() {
-    if (_selectedDeviceId == null || _selectedDeviceIp == null) return;
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => DeviceDetailScreen(
-          deviceId: _selectedDeviceId!,
-          deviceIp: _selectedDeviceIp!,
-          deviceName: _selectedDeviceName,
+    if (_selectedDeviceId != null && _selectedDeviceIp != null) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => DeviceDetailScreen(
+            deviceId: _selectedDeviceId!,
+            deviceIp: _selectedDeviceIp!,
+          ),
         ),
-      ),
-    );
+      );
+    }
   }
 
   Future<void> _handle_command(String command) async {
     try {
       switch (command) {
-        case 'reboot':
-          // 设备重启 - Show confirmation dialog first
-          final confirmed = await showDialog<bool>(
-            context: context,
-            builder: (context) => AlertDialog(
-              title: const Text('Reboot Device'),
-              content: const Text('Are you sure you want to reboot the device?'),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.of(context).pop(false),
-                  child: const Text('Cancel'),
-                ),
-                ElevatedButton(
-                  onPressed: () => Navigator.of(context).pop(true),
-                  child: const Text('Reboot'),
-                ),
-              ],
+        case 'software_manager':
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => SoftwareManagerScreen(
+                deviceIp: _selectedDeviceIp!,
+              ),
             ),
           );
-          
-          if (confirmed == true) {
-            await HttpService().sendCommand('reboot');
-            if (mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('Reboot command sent.'),
-                  backgroundColor: Colors.green,
-                ),
-              );
-            }
-          }
-          break;
-        case 'software_manager':
-          // 跳转到软件管理页面
-          if (_selectedDeviceIp != null) {
-            Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (context) => SoftwareManagerScreen(
-                  deviceIp: _selectedDeviceIp!,
-                ),
-              ),
-            );
-          }
           break;
         case 'firmware_manager':
-          // 跳转到固件管理页面
-          if (_selectedDeviceIp != null) {
-            Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (context) => FirmwareManagerScreen(
-                  deviceIp: _selectedDeviceIp!,
-                ),
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => FirmwareManagerScreen(
+                deviceIp: _selectedDeviceIp!,
               ),
-            );
-          }
+            ),
+          );
+          break;
+        case 'reboot':
+          await HttpService().rebootDevice();
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Reboot command sent')),
+          );
           break;
         case 'factory_reset':
-          // 恢复出厂设置
-          // 添加确认对话框
           showDialog(
             context: context,
             builder: (context) => AlertDialog(
-              title: const Text('Factory Reset'),
+              title: const Text('Confirm Factory Reset'),
               content: const Text(
-                  'Are you sure you want to reset this device to factory settings? This will erase all data and settings.'),
+                  'Are you sure you want to perform a factory reset? This action cannot be undone.'),
               actions: [
                 TextButton(
                   onPressed: () => Navigator.of(context).pop(),
@@ -335,14 +353,16 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
                 TextButton(
                   onPressed: () async {
-                    Navigator.of(context).pop();
-                    await HttpService().sendCommand('factory_reset');
-                    if (mounted) {
+                    Navigator.of(context).pop(); // Close the dialog
+                    try {
+                      await HttpService().factoryReset();
                       ScaffoldMessenger.of(context).showSnackBar(
                         const SnackBar(
-                          content: Text('Factory Reset command sent.'),
-                          backgroundColor: Colors.green,
-                        ),
+                            content: Text('Factory reset command sent')),
+                      );
+                    } catch (e) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text('Failed to send command: $e')),
                       );
                     }
                   },
@@ -446,51 +466,6 @@ class _HomeScreenState extends State<HomeScreen> {
         ],
       ),
     );
-  }
-
-  Future<void> _fetchBrowserUrls() async {
-    if (_selectedDeviceIp == null) return;
-
-    if (mounted) {
-      setState(() {
-        _loadingBrowserUrls = true;
-        _browserUrlsError = null;
-      });
-    }
-
-    int attempt = 0;
-    const int maxRetries = 5;
-    const Duration retryDelay = Duration(seconds: 1);
-
-    while (attempt < maxRetries) {
-      try {
-        final urls = await HttpService().getBrowserInfo();
-        if (mounted) {
-          setState(() {
-            _browserUrls = urls;
-            _loadingBrowserUrls = false;
-            _browserUrlsError = null; // Clear error on success
-          });
-        }
-        return; // Success, exit the function
-      } catch (e) {
-        attempt++;
-        if (attempt >= maxRetries) {
-          if (mounted) {
-            setState(() {
-              _browserUrlsError = e.toString();
-              _loadingBrowserUrls = false;
-            });
-          }
-          // Optional: Log the final error
-          // print('Failed to fetch browser URLs after $maxRetries attempts: $e');
-          return; // Max retries reached, exit
-        }
-        // Wait before retrying
-        // print('Retrying to fetch browser URLs... Attempt: $attempt, Error: $e');
-        await Future.delayed(retryDelay);
-      }
-    }
   }
 
   Widget _buildBrowserUrlCards() {

@@ -1,5 +1,7 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import '../models/task_info.dart';
 import '../services/http_service.dart';
 
 class PackageManagerScreen extends StatefulWidget {
@@ -14,6 +16,8 @@ class PackageManagerScreen extends StatefulWidget {
 
 class _PackageManagerScreenState extends State<PackageManagerScreen> {
   String? zigbeeMode;
+  final ValueNotifier<int> _progressNotifier = ValueNotifier(0);
+  final ValueNotifier<String> _messageNotifier = ValueNotifier("Starting...");
 
   @override
   void initState() {
@@ -21,24 +25,110 @@ class _PackageManagerScreenState extends State<PackageManagerScreen> {
     _fetchZigbeeInfo();
   }
 
+  @override
+  void dispose() {
+    _progressNotifier.dispose();
+    _messageNotifier.dispose();
+    super.dispose();
+  }
+
   Future<void> _fetchZigbeeInfo() async {
     try {
       final mode = await HttpService().fetchZigbeeInfo();
-      setState(() {
-        zigbeeMode = mode;
-      });
+      if (mounted) {
+        setState(() {
+          zigbeeMode = mode;
+        });
+      }
     } catch (e) {
-      setState(() {
-        zigbeeMode = null;
-      });
+      if (mounted) {
+        setState(() {
+          zigbeeMode = null;
+        });
+      }
     }
+  }
+
+  Future<void> _trackTaskProgress(String taskName) async {
+    Timer? timer;
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext dialogContext) {
+        return AlertDialog(
+          title: const Text('Processing...'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ValueListenableBuilder<int>(
+                valueListenable: _progressNotifier,
+                builder: (_, progress, __) {
+                  return LinearProgressIndicator(value: progress / 100.0);
+                },
+              ),
+              const SizedBox(height: 16),
+              ValueListenableBuilder<String>(
+                valueListenable: _messageNotifier,
+                builder: (_, message, __) {
+                  return Text(message);
+                },
+              ),
+            ],
+          ),
+        );
+      },
+    );
+
+    timer = Timer.periodic(const Duration(seconds: 1), (timer) async {
+      try {
+        final taskInfo = await HttpService().getTaskInfo(taskName);
+        _progressNotifier.value = taskInfo.data.progress;
+        _messageNotifier.value = taskInfo.data.message;
+
+        if (taskInfo.data.progress >= 100 || taskInfo.data.status == 'success' || taskInfo.data.status == 'failed') {
+          timer.cancel();
+          Navigator.of(context).pop(); // Close dialog
+          if (taskName == 'zigbee') {
+            _fetchZigbeeInfo();
+          }
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('${taskInfo.data.subTask} ${taskInfo.data.status}!')),
+          );
+        }
+      } catch (e) {
+        timer.cancel();
+        Navigator.of(context).pop();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('An error occurred: $e')),
+        );
+      }
+    });
   }
 
   Future<void> _sendZigbeeCommand(String action) async {
     try {
       await HttpService().sendZigbeeCommand(action);
+      _progressNotifier.value = 0;
+      _messageNotifier.value = "Switching Zigbee mode...";
+      _trackTaskProgress('zigbee');
     } catch (e) {
-      // Handle error if necessary
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to send command: $e')),
+      );
+    }
+  }
+
+  Future<void> _sendSettingCommand(String action) async {
+    try {
+      await HttpService().sendSettingCommand('setting', action: action);
+      _progressNotifier.value = 0;
+      _messageNotifier.value = "Processing setting command...";
+      _trackTaskProgress('setting');
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to send command: $e')),
+      );
     }
   }
 
@@ -50,8 +140,14 @@ class _PackageManagerScreenState extends State<PackageManagerScreen> {
         children: [
           const Padding(
             padding: EdgeInsets.all(16.0),
-            child: Text('HomeAssistant',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            child: Row(
+              children: [
+                Icon(Icons.language), // Icon for Zigbee
+                SizedBox(width: 8),
+                Text('Zigbee',
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              ],
+            ),
           ),
           const Divider(),
           ListTile(
@@ -61,7 +157,7 @@ class _PackageManagerScreenState extends State<PackageManagerScreen> {
             trailing: zigbeeMode == 'zha'
                 ? null
                 : IconButton(
-                    icon: Icon(Icons.arrow_forward_ios, color: Colors.blue),
+                    icon: const Icon(Icons.arrow_forward_ios, color: Colors.blue),
                     onPressed: () => _sendZigbeeCommand('zha'),
                   ),
           ),
@@ -72,9 +168,50 @@ class _PackageManagerScreenState extends State<PackageManagerScreen> {
             trailing: zigbeeMode == 'z2m'
                 ? null
                 : IconButton(
-                    icon: Icon(Icons.arrow_forward_ios, color: Colors.blue),
+                    icon: const Icon(Icons.arrow_forward_ios, color: Colors.blue),
                     onPressed: () => _sendZigbeeCommand('z2m'),
                   ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSettingCard() {
+    return Card(
+      margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Padding(
+            padding: EdgeInsets.all(16.0),
+            child: Row(
+              children: [
+                Icon(Icons.settings), // Icon for Setting
+                SizedBox(width: 8),
+                Text('Setting',
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              ],
+            ),
+          ),
+          const Divider(),
+          ListTile(
+            title: const Text('Backup'),
+            trailing: IconButton(
+              icon: const Icon(Icons.arrow_forward_ios),
+              onPressed: () {
+                _sendSettingCommand('backup');
+              },
+            ),
+          ),
+          ListTile(
+            title: const Text('Restore'),
+            trailing: IconButton(
+              icon: const Icon(Icons.arrow_forward_ios),
+              onPressed: () {
+                _sendSettingCommand('restore');
+              },
+            ),
           ),
         ],
       ),
@@ -85,11 +222,12 @@ class _PackageManagerScreenState extends State<PackageManagerScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Package Manager'),
+        title: Text(widget.packageId),
       ),
-      body: Column(
+      body: ListView(
         children: [
           _buildPackageCard(),
+          _buildSettingCard(),
         ],
       ),
     );

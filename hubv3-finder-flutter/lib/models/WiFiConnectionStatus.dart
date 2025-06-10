@@ -15,6 +15,16 @@ class WiFiConnectionStatus {
     this.errorMessage,
   });
 
+
+
+  String get statusMessage {
+    if (isConnected) {
+      return ssid ?? 'Connected';
+    } else {
+      return errorMessage ?? 'Offline/Unavailable';
+    }
+  }
+
   // Create from JSON string
   factory WiFiConnectionStatus.fromJson(String jsonString) {
     try {

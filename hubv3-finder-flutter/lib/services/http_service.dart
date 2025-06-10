@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:http/http.dart' as http;
 import 'package:crypto/crypto.dart';
 import '../models/browser_url.dart';
+import '../models/task_info.dart';
 
 class HttpService {
   // Singleton instance
@@ -132,6 +133,40 @@ class HttpService {
     } catch (e) {
       print('Error sending command: $e');
       throw Exception('Error sending command: $e');
+    }
+  }
+
+
+
+  // Reboot device
+  Future<void> rebootDevice() async {
+    await sendCommand('reboot');
+  }
+
+  // Factory reset
+  Future<void> factoryReset() async {
+    await sendCommand('factory_reset');
+  }
+
+  // Get Task Info
+  Future<TaskInfo> getTaskInfo(String task, {int timeout = 10}) async {
+    if (_baseUrl == null) {
+      throw Exception('HTTP Service not configured with a device IP');
+    }
+
+    try {
+      final response = await http.get(
+        Uri.parse('$_baseUrl/api/task/info?task=$task'),
+      ).timeout(Duration(seconds: timeout));
+
+      if (response.statusCode == 200) {
+        return TaskInfo.fromJson(jsonDecode(response.body));
+      } else {
+        throw Exception('Failed to get task info: ${response.statusCode}');
+      }
+    } catch (e) {
+      print('Error getting task info: $e');
+      throw Exception('Error getting task info: $e');
     }
   }
 
@@ -523,6 +558,9 @@ class HttpService {
     try {
       // Construct parameter map
       Map<String, String> paramMap = {};
+
+      paramMap['command'] = 'zigbee';
+
       paramMap['action'] = action;
 
       // Add timestamp
@@ -543,7 +581,7 @@ class HttpService {
       paramMap['_sig'] = sig;
 
       // Construct body string
-      List<String> orderedKeys = ['action', '_ct', '_sig'];
+      List<String> orderedKeys = ['command', 'action', '_ct', '_sig'];
       var bodyParts = <String>[];
       for (var k in orderedKeys) {
         if (paramMap.containsKey(k)) {
@@ -554,7 +592,7 @@ class HttpService {
       print('sending Zigbee command: $bodyStr');
 
       final response = await http.post(
-        Uri.parse('$_baseUrl/api/zigbee/command'),
+        Uri.parse('$_baseUrl/api/system/command'),
         headers: {'Content-Type': 'application/x-www-form-urlencoded'},
         body: bodyStr,
       ).timeout(const Duration(seconds: 10));
@@ -565,6 +603,64 @@ class HttpService {
     } catch (e) {
       print('Error sending Zigbee command: $e');
       throw Exception('Failed to send Zigbee command: $e');
+    }
+  }
+
+
+  // Send Setting Command
+  Future<String> sendSettingCommand(String command, {String action = ""}) async {
+    if (_baseUrl == null) {
+      throw Exception('HTTP Service not configured with a device IP');
+    }
+
+    try {
+      // 1. Construct parameter map
+      Map<String, String> paramMap = {};
+      paramMap['command'] = command;
+      if (action.isNotEmpty) {
+        paramMap['action'] = action;
+      }
+      int tvalue = DateTime.now().millisecondsSinceEpoch;
+      paramMap['_ct'] = tvalue.toString();
+
+      // 2. Sort keys and build signature string
+      var sortedKeys = paramMap.keys.toList()..sort();
+      var signParts = <String>[];
+      for (var k in sortedKeys) {
+        signParts.add('${Uri.encodeComponent(k)}=${Uri.encodeComponent(paramMap[k]!)}');
+      }
+      String signStr = signParts.join('&');
+      String md5Input = '$signStr&ThirdReality';
+      String sig = md5.convert(utf8.encode(md5Input)).toString();
+
+      // 3. Add signature to parameters
+      paramMap['_sig'] = sig;
+
+      // 4. Build body string in specific order
+      List<String> orderedKeys = ['command', 'action', '_ct', '_sig'];
+      var bodyParts = <String>[];
+      for (var k in orderedKeys) {
+        if (paramMap.containsKey(k)) {
+          bodyParts.add('${Uri.encodeComponent(k)}=${Uri.encodeComponent(paramMap[k]!)}');
+        }
+      }
+      String bodyStr = bodyParts.join('&');
+      print('sending setting command: $bodyStr');
+
+      final response = await http.post(
+        Uri.parse('$_baseUrl/api/system/command'),
+        headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+        body: bodyStr,
+      ).timeout(const Duration(seconds: 10));
+
+      if (response.statusCode == 200) {
+        return response.body;
+      } else {
+        throw Exception('Failed to send setting command: ${response.statusCode}');
+      }
+    } catch (e) {
+      print('Error sending setting command: $e');
+      throw Exception('Error sending setting command: $e');
     }
   }
 }
