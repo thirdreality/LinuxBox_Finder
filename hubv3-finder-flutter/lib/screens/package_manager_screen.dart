@@ -109,9 +109,15 @@ class _PackageManagerScreenState extends State<PackageManagerScreen> {
   Future<void> _sendZigbeeCommand(String action) async {
     try {
       await HttpService().sendZigbeeCommand(action);
-      _progressNotifier.value = 0;
-      _messageNotifier.value = "Switching Zigbee mode...";
-      _trackTaskProgress('zigbee');
+      if (action == 'scan') {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Scan command sent successfully!')),
+        );
+      } else {
+        _progressNotifier.value = 0;
+        _messageNotifier.value = "Switching Zigbee mode...";
+        _trackTaskProgress('zigbee');
+      }
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Failed to send command: $e')),
@@ -177,6 +183,38 @@ class _PackageManagerScreenState extends State<PackageManagerScreen> {
     );
   }
 
+  Widget _buildPermitJoinCard() {
+    return Card(
+      margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Padding(
+            padding: EdgeInsets.all(16.0),
+            child: Row(
+              children: [
+                Icon(Icons.search, color: Colors.blue),
+                SizedBox(width: 8),
+                Text('Permit Join',
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              ],
+            ),
+          ),
+          const Divider(),
+          ListTile(
+            title: const Text('Scan'),
+            trailing: IconButton(
+              icon: const Icon(Icons.arrow_forward_ios, color: Colors.blue),
+              onPressed: () {
+                _sendZigbeeCommand('scan');
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildSettingCard() {
     return Card(
       margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
@@ -227,9 +265,11 @@ class _PackageManagerScreenState extends State<PackageManagerScreen> {
       body: ListView(
         children: [
           _buildPackageCard(),
+          _buildPermitJoinCard(),
           _buildSettingCard(),
         ],
       ),
     );
   }
 }
+
