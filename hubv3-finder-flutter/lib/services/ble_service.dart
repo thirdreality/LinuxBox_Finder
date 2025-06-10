@@ -76,6 +76,8 @@ class BleService {
         return false;
       }
 
+      FlutterBluePlus.setLogLevel(LogLevel.verbose);
+
       return true;
     } catch (e) {
       print('Error initializing BLE: $e');
@@ -168,6 +170,18 @@ class BleService {
     }
   }
 
+  // Stop scanning for devices
+  Future<void> stopScan() async {
+    try {
+      if (FlutterBluePlus.isScanningNow) {
+        await FlutterBluePlus.stopScan();
+        print('BleService: Scan stopped by explicit call.');
+      }
+    } catch (e) {
+      print('BleService: Error stopping scan: $e');
+    }
+  }
+
   // Connect to device
   Future<BluetoothDevice?> connectToDevice(String deviceId, {bool enableHttp = true}) async {
     try {
@@ -225,7 +239,7 @@ class BleService {
               (d) => d.remoteId.str == deviceId,
         );
         // If reached here, device is connected
-        print('Device connected: $deviceId');
+        print('Find Device connected: $deviceId');
         _connectedDevice = device;
         return device;
       } catch (e) {
@@ -249,6 +263,7 @@ class BleService {
 
       // Disconnect previous connection
       if (_connectedDevice != null) {
+        print('Disconnect previous connection: $deviceId');
         await disconnect();
       }
 
@@ -256,7 +271,29 @@ class BleService {
       print('Connecting to device: ${device.platformName}');
       int retryCount = 0;
       const maxRetries = 3;
-      
+
+      // listen for disconnection
+      var subscription = device.connectionState.listen((BluetoothConnectionState state) async {
+        print("[1]connectionState $device");
+        if (state == BluetoothConnectionState.disconnected) {
+          // 1. typically, start a periodic timer that tries to
+          //    reconnect, or just call connect() again right now
+          // 2. you must always re-discover services after disconnection!
+          print("[1]${device?.disconnectReason?.code} ${device?.disconnectReason?.description}");
+        }
+      });
+
+      // cleanup: cancel subscription when disconnected
+      device.cancelWhenDisconnected(subscription);
+
+      final subscription2 = device.mtu.listen((int mtu) {
+        // iOS: initial value is always 23, but iOS will quickly negotiate a higher value
+        print("mtu $mtu");
+      });
+
+      // cleanup: cancel subscription when disconnected
+      device.cancelWhenDisconnected(subscription2);
+
       while (retryCount < maxRetries) {
         try {
           // Before attempting to connect, ensure any previous connections are properly closed
@@ -270,8 +307,27 @@ class BleService {
           }
           
           // Now try to connect
-          await device.connect(timeout: const Duration(seconds: 15), autoConnect: false);
-          print('BlueTooth connected successfully');
+          await device.connect(timeout: const Duration(seconds: 45), autoConnect: false, mtu: 128);
+          print('Connected to ${device.platformName}');
+
+          // Attempt to set a more relaxed connection priority for stability
+          // This is primarily for Android. iOS manages this more automatically.
+          try {
+            print('Requesting balanced connection priority...');
+            await device.requestConnectionPriority(connectionPriorityRequest: ConnectionPriority.balanced);
+            print('Connection priority set to balanced.');
+          } catch (e) {
+            print('BleService: Could not set connection priority: $e');
+          }
+
+          await device.setPreferredPhy(
+            txPhy: Phy.le1m.mask | Phy.leCoded.mask,
+            rxPhy: Phy.le1m.mask | Phy.leCoded.mask,
+            option: PhyCoding.s2,  // 稳定模式
+          );
+
+          await Future.delayed(Duration(seconds: 2)); // 等待连接稳定
+
           _connectedDevice = device;
           return device;
         } catch (e) {
@@ -331,9 +387,9 @@ class BleService {
       if (_useHttpMode) {
         return defaultResult;
       }
-      
+
       print('Configuring WiFi using BLE mode');
-      
+
       if (_connectedDevice == null) {
         throw Exception('Not connected to any device');
       }
@@ -364,7 +420,7 @@ class BleService {
       // Create a Completer to wait for response
       Completer<String> completer = Completer<String>();
       StreamSubscription<List<int>>? subscription;
- 
+
       // Set timeout
       Timer timer = Timer(const Duration(seconds: 60), () {
         if (!completer.isCompleted) {
@@ -478,7 +534,7 @@ class BleService {
     if (_connectedDevice != null) {
       try {
         await _connectedDevice!.disconnect();
-        print('BlueTooth Disconnected');
+        print('Last BlueTooth device Disconnected');
       } catch (e) {
         print('Error when disconnecting: $e');
       }

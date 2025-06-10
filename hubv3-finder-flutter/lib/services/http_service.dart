@@ -291,7 +291,7 @@ class HttpService {
     try {
       final response = await http.get(
         Uri.parse('$_baseUrl/api/service/info'),
-      ).timeout(const Duration(seconds: 10));
+      ).timeout(const Duration(seconds: 15));
 
       if (response.statusCode == 200) {
         return Map<String, dynamic>.from(jsonDecode(response.body));
@@ -330,7 +330,7 @@ class HttpService {
     try {
       final response = await http.get(
         Uri.parse('$_baseUrl/api/service/info/$service'),
-      ).timeout(const Duration(seconds: 10));
+      ).timeout(const Duration(seconds: 15));
 
       if (response.statusCode == 200) {
         return Map<String, dynamic>.from(jsonDecode(response.body));
@@ -420,7 +420,7 @@ class HttpService {
         Uri.parse('$_baseUrl/api/service/control'),
         headers: {'Content-Type': 'application/x-www-form-urlencoded'},
         body: bodyStr,
-      ).timeout(const Duration(seconds: 10));
+      ).timeout(const Duration(seconds: 30));
 
       if (response.statusCode != 200) {
         throw Exception('Failed to update service status: ${response.statusCode}');
@@ -498,116 +498,7 @@ class HttpService {
       throw Exception('Failed to update software package: $e');
     }
   }
-  
-  // Reset Software to Default
-  Future<void> resetSoftwareToDefault() async {
-    if (_baseUrl == null) {
-      throw Exception('HTTP Service not configured with a device IP');
-    }
-    
-    try {
-      final response = await http.post(
-        Uri.parse('$_baseUrl/api/software/reset'),
-        headers: <String, String>{
-          'Content-Type': 'application/json; charset=UTF-8',
-        },
-      ).timeout(const Duration(seconds: 10));
 
-      if (response.statusCode != 200) {
-        throw Exception('Failed to reset software: ${response.statusCode}');
-      }
-    } catch (e) {
-      print('Error resetting software: $e');
-      throw Exception('Failed to reset software: $e');
-    }
-  }
-
-  // Legacy method for service_manager_screen - DO NOT USE IN NEW CODE
-  Future<Map<String, dynamic>> updateServiceStatusLegacy(String serviceId, String action) async {
-    if (_baseUrl == null) {
-      throw Exception('HTTP Service not configured with a device IP');
-    }
-
-    try {
-      final response = await http.post(
-        Uri.parse('$_baseUrl/api/system/service'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({
-          'service': serviceId,
-          'action': action, // start, stop, enable, disable
-        }),
-      ).timeout(const Duration(seconds: 15));
-
-      if (response.statusCode == 200) {
-        return Map<String, dynamic>.from(jsonDecode(response.body));
-      } else {
-        throw Exception('Failed to update service status: ${response.statusCode}');
-      }
-    } catch (e) {
-      print('Error updating service status: $e');
-      // 模拟成功响应
-      return {
-        'success': true,
-        'message': 'Service $serviceId $action operation completed',
-        'service': serviceId,
-        'action': action
-      };
-    }
-  }
-
-  // Reset Services to Default
-  Future<Map<String, dynamic>> resetServicesToDefault() async {
-    if (_baseUrl == null) {
-      throw Exception('HTTP Service not configured with a device IP');
-    }
-
-    try {
-      final response = await http.post(
-        Uri.parse('$_baseUrl/api/system/reset-services'),
-        headers: {'Content-Type': 'application/json'},
-      ).timeout(const Duration(seconds: 20));
-
-      if (response.statusCode == 200) {
-        return Map<String, dynamic>.from(jsonDecode(response.body));
-      } else {
-        throw Exception('Failed to reset services: ${response.statusCode}');
-      }
-    } catch (e) {
-      print('Error resetting services: $e');
-      // 模拟成功响应
-      return {
-        'success': true,
-        'message': 'Services reset to default configuration'
-      };
-    }
-  }
-
-  // Legacy method for software_manager_screen - DO NOT USE IN NEW CODE
-  Future<Map<String, dynamic>> resetSoftwareToDefaultLegacy() async {
-    if (_baseUrl == null) {
-      throw Exception('HTTP Service not configured with a device IP');
-    }
-
-    try {
-      final response = await http.post(
-        Uri.parse('$_baseUrl/api/system/reset-software'),
-        headers: {'Content-Type': 'application/json'},
-      ).timeout(const Duration(seconds: 30));
-
-      if (response.statusCode == 200) {
-        return Map<String, dynamic>.from(jsonDecode(response.body));
-      } else {
-        throw Exception('Failed to reset software: ${response.statusCode}');
-      }
-    } catch (e) {
-      print('Error resetting software: $e');
-      // 模拟成功响应
-      return {
-        'success': true,
-        'message': 'Software reset to default configuration'
-      };
-    }
-  }
 
   // Fetch Zigbee Info
   Future<String?> fetchZigbeeInfo() async {

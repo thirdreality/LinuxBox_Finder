@@ -2,7 +2,6 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import '../services/http_service.dart';
-import 'reprovision_progress_screen.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class DeviceDetailScreen extends StatefulWidget {
@@ -102,16 +101,6 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
         ..._initialInfo,
       };
     }
-  }
-
-  void _onChangeWifi(BuildContext context) {
-    Navigator.of(context).push(MaterialPageRoute(
-      builder: (_) => ReprovisionProgressScreen(
-        deviceId: widget.deviceId,
-        deviceIp: widget.deviceIp,
-        deviceName: widget.deviceName,
-      ),
-    ));
   }
 
   void _onClearCurrentHub(BuildContext context) async {

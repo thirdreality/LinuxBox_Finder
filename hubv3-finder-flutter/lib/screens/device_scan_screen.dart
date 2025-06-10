@@ -105,6 +105,18 @@ class _DeviceScanScreenState extends State<DeviceScanScreen> {
   }
 
   void _onConnectToDevice(BleDevice device, {bool enableHttp = true, bool showPrompt = true}) async {
+    // Ensure scanning is stopped before attempting to connect
+    if (_isScanning) {
+      print('DeviceScanScreen: Stopping scan before connecting...');
+      await _bleService.stopScan();
+      if (mounted) {
+        setState(() {
+          _isScanning = false;
+        });
+      }
+      print('DeviceScanScreen: Scan stopped.');
+    }
+
     // Check if there is an IP address and it is not 0
     final hasIp = device.ipAddress != null && device.ipAddress!.isNotEmpty && device.ipAddress != '0.0.0.0';
     if (hasIp && enableHttp) {
@@ -175,47 +187,6 @@ class _DeviceScanScreenState extends State<DeviceScanScreen> {
         _showNetworkConfigDialog(device);
       }
     } else {
-
-      if(showPrompt) {
-        // Show prompt dialog for WiFi setup
-        showDialog(
-          context: context,
-          builder: (context) => AlertDialog(
-            title: const Text('WiFi provision'),
-            content: const Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text.rich(TextSpan(
-                  children: [
-                    TextSpan(text: '1. Press and hold the button on the device for 7-8 seconds until the LED changes from GREEN to '),
-                    TextSpan(text: 'YELLOW', style: TextStyle(fontWeight: FontWeight.bold)),
-                    TextSpan(text: ', then release the button'),
-                  ],
-                )),
-                SizedBox(height: 16),
-                Text('2. Click Next to continue'),
-              ],
-            ),
-            actions: [
-              TextButton(
-                onPressed: () {
-                  Navigator.of(context).pop();
-                },
-                child: const Text('Back'),
-              ),
-              ElevatedButton(
-                onPressed: () {
-                  Navigator.of(context).pop();
-                  _onConnectToDevice(device, enableHttp: false, showPrompt: false);
-                },
-                child: const Text('Next'),
-              ),
-            ],
-          ),
-        );
-        return;
-      }
 
       // Connect BLE first, ensure BLE is connected before entering provisioning page
       // Show loading dialog

@@ -9,6 +9,7 @@ import 'software_manager_screen.dart';
 import 'firmware_manager_screen.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../models/browser_url.dart';
+import 'provision_prepare_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({Key? key}) : super(key: key);
@@ -97,6 +98,13 @@ class _HomeScreenState extends State<HomeScreen> {
     });
   }
 
+  void _goToProvisionPrepare() async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (context) => const ProvisionPrepareScreen()),
+    );
+  }
+
   void _goToScan() async {
     final result = await Navigator.push(
       context,
@@ -127,7 +135,7 @@ class _HomeScreenState extends State<HomeScreen> {
     }
     if (_selectedDeviceId == null || _selectedDeviceIp == null) {
       return GestureDetector(
-        onTap: _goToScan,
+        onTap: _goToProvisionPrepare,
         child: Card(
           color: Colors.grey[200],
           margin: const EdgeInsets.all(16),
@@ -450,20 +458,37 @@ class _HomeScreenState extends State<HomeScreen> {
       });
     }
 
-    try {
-      final urls = await HttpService().getBrowserInfo();
-      if (mounted) {
-        setState(() {
-          _browserUrls = urls;
-          _loadingBrowserUrls = false;
-        });
-      }
-    } catch (e) {
-      if (mounted) {
-        setState(() {
-          _browserUrlsError = e.toString();
-          _loadingBrowserUrls = false;
-        });
+    int attempt = 0;
+    const int maxRetries = 5;
+    const Duration retryDelay = Duration(seconds: 1);
+
+    while (attempt < maxRetries) {
+      try {
+        final urls = await HttpService().getBrowserInfo();
+        if (mounted) {
+          setState(() {
+            _browserUrls = urls;
+            _loadingBrowserUrls = false;
+            _browserUrlsError = null; // Clear error on success
+          });
+        }
+        return; // Success, exit the function
+      } catch (e) {
+        attempt++;
+        if (attempt >= maxRetries) {
+          if (mounted) {
+            setState(() {
+              _browserUrlsError = e.toString();
+              _loadingBrowserUrls = false;
+            });
+          }
+          // Optional: Log the final error
+          // print('Failed to fetch browser URLs after $maxRetries attempts: $e');
+          return; // Max retries reached, exit
+        }
+        // Wait before retrying
+        // print('Retrying to fetch browser URLs... Attempt: $attempt, Error: $e');
+        await Future.delayed(retryDelay);
       }
     }
   }
@@ -479,7 +504,7 @@ class _HomeScreenState extends State<HomeScreen> {
     if (_browserUrlsError != null) {
       return Padding(
         padding: const EdgeInsets.all(16.0),
-        child: Text('Error loading browser URLs: $_browserUrlsError', style: const TextStyle(color: Colors.red)),
+        child: Text('The server might not be ready yet, please click the refresh button.', style: const TextStyle(color: Colors.red)),
       );
     }
 
