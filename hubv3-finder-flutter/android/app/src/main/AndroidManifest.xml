@@ -1,4 +1,27 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    
+    <!-- Network permissions -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
+    <!-- Bluetooth hardware feature declaration -->
+    <uses-feature android:name="android.hardware.bluetooth" android:required="false" />
+    <uses-feature android:name="android.hardware.bluetooth_le" android:required="false" />
+
+    <!-- Legacy Bluetooth permissions (required for Huawei/HarmonyOS compatibility) -->
+    <uses-permission android:name="android.permission.BLUETOOTH" />
+    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" />
+    
+    <!-- Location permissions (required for BLE scanning) -->
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+
+    <!-- New Bluetooth permissions for Android 12+ with proper flags -->
+    <uses-permission android:name="android.permission.BLUETOOTH_SCAN" 
+                     android:usesPermissionFlags="neverForLocation" />
+    <uses-permission android:name="android.permission.BLUETOOTH_ADVERTISE" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+
     <application
         android:label="Hub Finder"
         android:name="${applicationName}"
@@ -31,6 +54,7 @@
             android:name="flutterEmbedding"
             android:value="2" />
     </application>
+    
     <!-- Required to query activities that can process text, see:
          https://developer.android.com/training/package-visibility and
          https://developer.android.com/reference/android/content/Intent#ACTION_PROCESS_TEXT.
@@ -52,31 +76,5 @@
             <data android:scheme="http" />
         </intent>
     </queries>
-
-
-    <uses-permission android:name="android.permission.INTERNET" />
-    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
-
-    <uses-permission android:name="android.permission.BLUETOOTH_SCAN" />
-    <uses-permission android:name="android.permission.BLUETOOTH_ADVERTISE" />
-    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
-
-<!--    &lt;!&ndash; Tell Google Play Store that your app uses Bluetooth LE-->
-<!--     Set android:required="true" if bluetooth is necessary &ndash;&gt;-->
-<!--    <uses-feature android:name="android.hardware.bluetooth_le" android:required="false" />-->
-
-<!--    &lt;!&ndash; New Bluetooth permissions in Android 12-->
-<!--    https://developer.android.com/about/versions/12/features/bluetooth-permissions &ndash;&gt;-->
-<!--&lt;!&ndash;    <uses-permission android:name="android.permission.BLUETOOTH_SCAN" android:usesPermissionFlags="neverForLocation" />&ndash;&gt;-->
-<!--&lt;!&ndash;    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />&ndash;&gt;-->
-<!--&lt;!&ndash;    <uses-permission android:name="android.permission.BLUETOOTH_ADVERTISE" />&ndash;&gt;-->
-
-<!--    &lt;!&ndash; legacy for Android 11 or lower &ndash;&gt;-->
-<!--    <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />-->
-<!--    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30" />-->
-<!--    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" android:maxSdkVersion="30"/>-->
-
-<!--    &lt;!&ndash; legacy for Android 9 or lower &ndash;&gt;-->
-<!--    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" android:maxSdkVersion="28" />-->
 
 </manifest>

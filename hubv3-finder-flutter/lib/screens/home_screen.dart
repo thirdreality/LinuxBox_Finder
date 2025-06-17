@@ -70,7 +70,7 @@ class _HomeScreenState extends State<HomeScreen> {
           }
         }
       } catch (e) {
-        _wifiStatus = WiFiConnectionStatus.error('Failed to get WiFi status');
+        _wifiStatus = WiFiConnectionStatus.error('Offline');
       }
     } else {
       _wifiStatus = null;
@@ -265,7 +265,9 @@ class _HomeScreenState extends State<HomeScreen> {
                               const SizedBox(width: 4),
                               Expanded(
                                 child: Text(
-                                  _wifiStatus!.statusMessage,
+                                  _wifiStatus!.isConnected
+                                      ? _wifiStatus!.statusMessage
+                                      : 'Offline',
                                   style: TextStyle(
                                     fontSize: 14,
                                     color: _wifiStatus!.isConnected

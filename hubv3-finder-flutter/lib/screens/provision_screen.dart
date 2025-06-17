@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
@@ -8,6 +9,7 @@ import '../models/wifi_network.dart';
 import '../services/ble_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:collection/collection.dart'; // for firstWhereOrNull
+import '../widgets/global_ble_status.dart';
 
 class ProvisionScreen extends StatefulWidget {
   final String deviceId;
@@ -20,9 +22,13 @@ class ProvisionScreen extends StatefulWidget {
 
 class _ProvisionScreenState extends State<ProvisionScreen> {
   bool _dialogOpen = false;
+  StreamSubscription<bool>? _connectionSubscription;
+  bool _isConnected = true;
 
   @override
   void dispose() {
+    // Cancel connection subscription
+    _connectionSubscription?.cancel();
     // Disconnect BLE when leaving the page
     BleService().disconnect();
     super.dispose();
@@ -68,6 +74,50 @@ class _ProvisionScreenState extends State<ProvisionScreen> {
   @override
   void initState() {
     super.initState();
+    
+    // Listen to global connection state changes
+    _connectionSubscription = BleService.globalConnectionStateStream.listen((isConnected) {
+      setState(() {
+        _isConnected = isConnected;
+      });
+      
+      if (!isConnected) {
+        // Show connection lost message
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Row(
+                children: const [
+                  Icon(Icons.warning, color: Colors.white),
+                  SizedBox(width: 8),
+                  Expanded(child: Text('Device connection lost. Attempting to reconnect...')),
+                ],
+              ),
+              backgroundColor: Colors.orange,
+              duration: const Duration(seconds: 3),
+            ),
+          );
+        }
+      } else {
+        // Show reconnection success message
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Row(
+                children: const [
+                  Icon(Icons.check_circle, color: Colors.white),
+                  SizedBox(width: 8),
+                  Text('Device reconnected successfully'),
+                ],
+              ),
+              backgroundColor: Colors.green,
+              duration: const Duration(seconds: 2),
+            ),
+          );
+        }
+      }
+    });
+    
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _showLoadingDialog('Scanning WiFi list...');
       _startWiFiScan();
@@ -140,7 +190,7 @@ class _ProvisionScreenState extends State<ProvisionScreen> {
           await Future.delayed(const Duration(milliseconds: 500));
         }
         
-        final result = await bleService.configureWiFi(
+        final result = await bleService.configureWiFiWithReconnection(
           _selectedSSID ?? '',
           _passwordController.text,
           false
@@ -148,6 +198,13 @@ class _ProvisionScreenState extends State<ProvisionScreen> {
         
         // Process the result - successful connection, exit retry loop
         final Map<String, dynamic> json = result is String ? Map<String, dynamic>.from(jsonDecode(result)) : {};
+        
+        // Check for connection errors first
+        if (json.containsKey('error')) {
+          errorMessage = json['error'];
+          break; // Exit retry loop for explicit errors
+        }
+        
         if (json['connected'] == true && json['ip_address'] != null && json['ip_address'].toString().isNotEmpty) {
         // Provisioning successful, save information
         final prefs = await SharedPreferences.getInstance();
@@ -418,11 +475,11 @@ class _ProvisionScreenState extends State<ProvisionScreen> {
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
                               ElevatedButton.icon(
-                                onPressed: _provision,
-                                icon: const Icon(Icons.wifi),
-                                label: const Text('Connect'),
+                                onPressed: _isConnected ? _provision : null,
+                                icon: Icon(_isConnected ? Icons.wifi : Icons.bluetooth_disabled),
+                                label: Text(_isConnected ? 'Connect' : 'Device Disconnected'),
                                 style: ElevatedButton.styleFrom(
-                                  backgroundColor: Colors.blue,
+                                  backgroundColor: _isConnected ? Colors.blue : Colors.grey,
                                   foregroundColor: Colors.white,
                                 ),
                               ),
@@ -441,7 +498,21 @@ class _ProvisionScreenState extends State<ProvisionScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('WiFi Configuration')),
+      appBar: AppBar(
+        title: const Text('WiFi Configuration'),
+        actions: [
+          // Global connection status indicator
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            child: const GlobalBleStatus(
+              showIcon: true,
+              showText: true,
+              iconSize: 20,
+              fontSize: 12,
+            ),
+          ),
+        ],
+      ),
       body: Padding(
         padding: const EdgeInsets.symmetric(vertical: 16.0, horizontal: 12.0),
         child: _buildWifiWidget(context),
