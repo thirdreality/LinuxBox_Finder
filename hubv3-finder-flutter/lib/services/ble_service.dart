@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io' show Platform;
 import 'package:crypto/crypto.dart';
 import 'package:device_info_plus/device_info_plus.dart';
+import 'package:geolocator/geolocator.dart';
 
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -87,18 +88,38 @@ class BleService {
   StreamSubscription<BluetoothConnectionState>? _connectionSubscription;
   Timer? _connectionCheckTimer;
 
-  // MTU utility methods
-  static const int BLE_MIN_MTU = 23;
-  static const int BLE_MAX_MTU = 517; // BLE 4.2+ theoretical maximum
-  static const int BLE_PREFERRED_MTU = 256;
+  // MTU utility methods - Fixed MTU
+  static const int BLE_MTU = 23; // Fixed MTU value
   
-  int _currentMtu = BLE_MIN_MTU;
+  int _currentMtu = BLE_MTU;
   int get currentMtu => _currentMtu;
   int get maxDataLength => _currentMtu - 3; // Subtract ATT header (3 bytes)
 
   // Huawei/HarmonyOS detection and handling
   bool _isHuaweiDevice = false;
   bool get isHuaweiDevice => _isHuaweiDevice;
+
+  // Check if location services are enabled (required for Android 8.0+ BLE scanning)
+  Future<void> _checkLocationServices() async {
+    if (!Platform.isAndroid) return; // Only check on Android
+    
+    bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    if (!serviceEnabled) {
+      throw Exception('Location services are disabled. Please enable location services in your device settings for Bluetooth scanning to work.');
+    }
+    
+    print('Location services are enabled - BLE scanning allowed');
+  }
+
+  // Open location settings for user to enable location services
+  Future<bool> openLocationSettings() async {
+    try {
+      return await Geolocator.openLocationSettings();
+    } catch (e) {
+      print('Error opening location settings: $e');
+      return false;
+    }
+  }
 
   // Detect if running on Huawei/HarmonyOS device
   Future<bool> _detectHuaweiDevice() async {
@@ -248,6 +269,14 @@ class BleService {
     try {
       _discoveredDevices.clear();
 
+      // Check if location services are enabled (required for Android 8.0+)
+      try {
+        await _checkLocationServices();
+      } catch (e) {
+        print('Location services check failed: $e');
+        throw Exception('Location services must be enabled for Bluetooth scanning. Please enable location services in your device settings and try again.');
+      }
+
       // Listen to scan results
       FlutterBluePlus.scanResults.listen((results) {
         for (ScanResult result in results) {
@@ -342,7 +371,7 @@ class BleService {
     }
   }
 
-  // Connect to device
+  // Connect to device with enhanced retry logic
   Future<BluetoothDevice?> connectToDevice(String deviceId, {bool enableHttp = true}) async {
     try {
       // Print _discoveredDevices for debugging
@@ -350,6 +379,14 @@ class BleService {
       for (var device in _discoveredDevices) {
         print('  ${device.toString()}');
       }
+      
+      // Stop any ongoing scan to free up resources
+      if (FlutterBluePlus.isScanningNow) {
+        print('Stopping scan before connection attempt...');
+        await FlutterBluePlus.stopScan();
+        await Future.delayed(const Duration(milliseconds: 500));
+      }
+      
       // Find the selected device
       BleDevice? selectedDevice;
       for (var device in _discoveredDevices) {
@@ -359,8 +396,28 @@ class BleService {
         }
       }
       
+      if (selectedDevice == null) {
+        print('Device not found in discovered devices, attempting to find from system...');
+        // Try to find device from system connected devices
+        try {
+          List<BluetoothDevice> systemDevices = FlutterBluePlus.connectedDevices;
+          for (var sysDevice in systemDevices) {
+            if (sysDevice.remoteId.str == deviceId) {
+              print('Found device in system connected devices');
+              _connectedDevice = sysDevice;
+              _lastDeviceId = deviceId;
+              _updateGlobalConnectionState(true, 'Connected');
+              return sysDevice;
+            }
+          }
+        } catch (e) {
+          print('Error checking system connected devices: $e');
+        }
+        throw Exception('Device not found: $deviceId');
+      }
+      
       // Check if device has IP address
-      if (selectedDevice != null && selectedDevice.ipAddress != null && enableHttp) {
+      if (selectedDevice.ipAddress != null && selectedDevice.ipAddress!.isNotEmpty && enableHttp) {
         final ip = selectedDevice.ipAddress!;
         if (ip == '0.0.0.0' || ip.isEmpty) {
           print('Device IP address is 0.0.0.0 or empty, skip HTTP connection and use BLE mode directly');
@@ -376,6 +433,7 @@ class BleService {
             _useHttpMode = true;
             // In HTTP mode, we still store the original BLE device reference, but mainly use HTTP service
             _connectedDevice = selectedDevice.device;
+            _updateGlobalConnectionState(true, 'Connected via HTTP');
             return selectedDevice.device;
           } else {
             print('HTTP connection failed, will use BLE mode');
@@ -389,81 +447,67 @@ class BleService {
       }
       
       // If HTTP connection fails or device has no IP address, use BLE connection
-      BluetoothDevice? device;
+      BluetoothDevice? device = selectedDevice.device;
+
+      if (device == null) {
+        throw Exception('BLE device object is null');
+      }
 
       // First check if already connected
       print('Check if device is already connected: $deviceId');
       try {
         List<BluetoothDevice> connectedDevices = FlutterBluePlus.connectedDevices;
-        device = connectedDevices.firstWhere(
-              (d) => d.remoteId.str == deviceId,
-        );
-        // If reached here, device is connected
-        print('Find Device connected: $deviceId');
-        _connectedDevice = device;
-        return device;
+        BluetoothDevice? connectedDevice = connectedDevices.where((d) => d.remoteId.str == deviceId).firstOrNull;
+        if (connectedDevice != null && connectedDevice.isConnected) {
+          // If reached here, device is connected
+          print('Device already connected: $deviceId');
+          _connectedDevice = connectedDevice;
+          _lastDeviceId = deviceId; // Store device ID for auto-reconnection
+          _updateGlobalConnectionState(true, 'Connected');
+          return connectedDevice;
+        }
       } catch (e) {
         // Device not connected, need to connect
         print('Device not connected, trying to connect: $deviceId');
       }
 
-      // Find the device to connect
-      device = null;
-      for (BleDevice bleDevice in _discoveredDevices) {
-        if (bleDevice.id == deviceId && bleDevice.device != null) {
-          device = bleDevice.device;
-          break;
-        }
-      }
-
-      if (device == null) {
-        print('Device not found: $deviceId');
-        throw Exception('Device not found');
-      }
-
-      // Disconnect previous connection
-      if (_connectedDevice != null) {
-        print('Disconnect previous connection: $deviceId');
+      // Disconnect previous connection if any
+      if (_connectedDevice != null && _connectedDevice!.remoteId.str != deviceId) {
+        print('Disconnect previous connection before new connection');
         await disconnect();
+        await Future.delayed(const Duration(milliseconds: 500));
       }
 
-      // Connect to device with retry logic
-      print('Connecting to device: ${device.platformName}');
-      int retryCount = 0;
+      // Enhanced connection with retry logic
+      print('Connecting to device: ${device.platformName} (${device.remoteId})');
       const maxRetries = 3;
+      int retryCount = 0;
+      int android133Count = 0; // Track android-code: 133 errors separately
 
-             // listen for disconnection with enhanced handling
-       _connectionSubscription?.cancel(); // Cancel previous subscription
-       _connectionSubscription = device.connectionState.listen((BluetoothConnectionState state) async {
-         print("[BLE] Connection state changed: $state for device ${device?.platformName}");
-         
-         if (state == BluetoothConnectionState.connected) {
-           _updateGlobalConnectionState(true, 'Connected');
-           _isReconnecting = false;
-           print("[BLE] Device connected successfully");
-         } else if (state == BluetoothConnectionState.disconnected) {
-           _updateGlobalConnectionState(false, 'Disconnected - ${device?.disconnectReason?.description ?? 'Unknown reason'}');
-           print("[BLE] Device disconnected - Reason: ${device?.disconnectReason?.code} ${device?.disconnectReason?.description}");
-           
-           // If this was not an intentional disconnect and we have a device to reconnect to
-           if (!_isReconnecting && _lastDeviceId != null) {
-             print("[BLE] Starting auto-reconnection for device: $_lastDeviceId");
-             _updateGlobalConnectionState(false, 'Reconnecting...');
-             _startAutoReconnection();
-           }
-         }
-       });
-
-      // cleanup: cancel subscription when disconnected
-      device.cancelWhenDisconnected(_connectionSubscription!);
-
-      final subscription2 = device.mtu.listen((int mtu) {
-        // iOS: initial value is always 23, but iOS will quickly negotiate a higher value
-        print("mtu $mtu");
+      // Set up connection state listener
+      _connectionSubscription?.cancel(); // Cancel previous subscription
+      _connectionSubscription = device.connectionState.listen((BluetoothConnectionState state) async {
+        print("[BLE] Connection state changed: $state for device ${device.platformName}");
+        
+        if (state == BluetoothConnectionState.connected) {
+          _updateGlobalConnectionState(true, 'Connected');
+          _isReconnecting = false;
+          print("[BLE] Device connected successfully");
+        } else if (state == BluetoothConnectionState.disconnected) {
+          _updateGlobalConnectionState(false, 'Disconnected - ${device.disconnectReason?.description ?? 'Unknown reason'}');
+          print("[BLE] Device disconnected - Reason: ${device.disconnectReason?.code} ${device.disconnectReason?.description}");
+          
+          // If this was not an intentional disconnect and we have a device to reconnect to
+          if (!_isReconnecting && _lastDeviceId != null) {
+            print("[BLE] Starting auto-reconnection for device: $_lastDeviceId");
+            _updateGlobalConnectionState(false, 'Reconnecting...');
+            _startAutoReconnection();
+          }
+        }
       });
 
       // cleanup: cancel subscription when disconnected
-      device.cancelWhenDisconnected(subscription2);
+      device.cancelWhenDisconnected(_connectionSubscription!);
 
       while (retryCount < maxRetries) {
         try {
@@ -480,64 +524,141 @@ class BleService {
             print('Disconnect before connect attempt: $e');
           }
           
-          // Now try to connect with shorter timeout for faster retry
-          await device.connect(timeout: const Duration(seconds: 30), autoConnect: false, mtu: 256);
+          // Enhanced connection strategy with optimized parameters
+          print('Attempting BLE connection with optimized parameters...');
+          
+          // Try with different connection strategies
+          bool connectionSuccessful = false;
+          Exception? lastConnectionError;
+          
+          // Strategy 1: Standard connection with shorter timeout
+          try {
+            await device.connect(
+              timeout: const Duration(seconds: 5), // Reduced from 30s
+              autoConnect: false,
+              mtu: null
+            );
+            connectionSuccessful = true;
+            print('Strategy 1 (standard) connection successful');
+          } catch (e) {
+            lastConnectionError = e as Exception;
+            print('Strategy 1 failed: $e');
+            
+            // Strategy 2: Try with autoConnect enabled (for some problematic devices)
+            try {
+              await Future.delayed(const Duration(milliseconds: 1000));
+              await device.connect(
+                timeout: const Duration(seconds: 5),
+                autoConnect: true,
+                mtu: null
+              );
+              connectionSuccessful = true;
+              print('Strategy 2 (autoConnect) connection successful');
+            } catch (e2) {
+              lastConnectionError = e2 as Exception;
+              print('Strategy 2 failed: $e2');
+              
+              // Strategy 3: Force disconnect and retry
+              try {
+                await device.disconnect();
+                await Future.delayed(const Duration(seconds: 2));
+                await device.connect(
+                  timeout: const Duration(seconds: 5),
+                  autoConnect: false,
+                  mtu: null
+                );
+                connectionSuccessful = true;
+                print('Strategy 3 connection successful');
+              } catch (e3) {
+                lastConnectionError = e3 as Exception;
+                print('Strategy 3 failed: $e3');
+              }
+            }
+          }
+          
+          if (!connectionSuccessful) {
+            throw lastConnectionError ?? Exception('All connection strategies failed');
+          }
+          
           print('Connected to ${device.platformName}');
 
-          // Attempt to set a more relaxed connection priority for stability
-          // This is primarily for Android. iOS manages this more automatically.
+          // Wait for connection to stabilize
+          await Future.delayed(const Duration(milliseconds: 1500));
+
+          // Verify the connection is still active
+          if (!device.isConnected) {
+            throw Exception('Connection lost immediately after connecting');
+          }
+
+          // Attempt to set connection priority for stability (optional)
           try {
             print('Requesting balanced connection priority...');
             await device.requestConnectionPriority(connectionPriorityRequest: ConnectionPriority.balanced);
             print('Connection priority set to balanced.');
           } catch (e) {
-            print('BleService: Could not set connection priority: $e');
+            print('BleService: Could not set connection priority: $e (continuing anyway)');
           }
 
-          // Wait for connection to stabilize
-          await Future.delayed(Duration(seconds: 1));
-
-          // Check if device is still connected before MTU negotiation
-          if (device.isConnected) {
-            // Try to negotiate optimal MTU with fallback strategy
-            try {
-              await _negotiateOptimalMtu(device);
-            } catch (e) {
-              print('MTU negotiation failed: $e, using default MTU');
-              _currentMtu = BLE_MIN_MTU;
-            }
-          } else {
-            print('Device disconnected before MTU negotiation, using default MTU');
-            _currentMtu = BLE_MIN_MTU;
-          }
+          // Fixed MTU - no negotiation needed
+          _currentMtu = BLE_MTU;
+          print('Using fixed MTU: $BLE_MTU bytes');
 
           _connectedDevice = device;
           _lastDeviceId = deviceId; // Store device ID for auto-reconnection
           _updateGlobalConnectionState(true, 'Connected');
           return device;
-        } catch (e) {
-          retryCount++;
-          print('Connection attempt $retryCount failed: $e');
           
-          // Check if this is the Android error code 133
+        } catch (e) {
+          print('Connection attempt ${retryCount + 1} failed: $e');
+          
+          // Check if this is the Android error code 133 (don't count towards retry limit)
           if (e.toString().contains('android-code: 133')) {
-            print('Android error code 133 detected, waiting before retry...');
+            android133Count++;
+            print('Android error code 133 detected (count: $android133Count), waiting before retry...');
             // Wait longer between retries for this specific error
-            await Future.delayed(const Duration(seconds: 2));
+            await Future.delayed(const Duration(seconds: 3));
             
-            // If this is the last retry, try toggling Bluetooth
-            if (retryCount == maxRetries - 1) {
-              print('Last retry attempt, suggesting Bluetooth reset');
-              // We can't toggle Bluetooth programmatically, so we'll just inform the user
+            // Special handling for android-code: 133
+            if (android133Count >= 5) {
+              // If we get too many 133 errors, suggest Bluetooth reset
+              print('Too many android-code: 133 errors, suggesting Bluetooth reset');
+              throw Exception('Connection failed with repeated Bluetooth errors. Please turn Bluetooth off and on, then try again.');
             }
-          } else {
-            // For other errors, wait a shorter time
-            await Future.delayed(const Duration(milliseconds: 500));
+            // Don't increment retryCount for android-code: 133
+            continue;
           }
           
-          // If we've reached max retries, rethrow the error
+          retryCount++;
+          
+          // Check for other specific error types
+          if (e.toString().contains('Connection timeout') || e.toString().contains('timeout') || e.toString().contains('Timed out')) {
+            print('Connection timeout detected, retrying with shorter delay...');
+            await Future.delayed(const Duration(milliseconds: 800));
+          } else if (e.toString().contains('device is not available') || e.toString().contains('not found')) {
+            print('Device not available error, waiting before retry...');
+            await Future.delayed(const Duration(seconds: 2));
+          } else if (e.toString().contains('already connected') || e.toString().contains('busy')) {
+            print('Device busy/connected error, forcing disconnect and retry...');
+            try {
+              await device.disconnect();
+              await Future.delayed(const Duration(seconds: 2));
+            } catch (disconnectError) {
+              print('Error during forced disconnect: $disconnectError');
+            }
+            await Future.delayed(const Duration(seconds: 1));
+          } else {
+            // For other errors, wait a standard amount
+            await Future.delayed(const Duration(seconds: 1));
+          }
+          
+          // If we've reached max retries, rethrow the error with more context
           if (retryCount >= maxRetries) {
-            throw Exception('Failed to connect after $maxRetries attempts: $e');
+            String enhancedError = 'Failed to connect after $maxRetries attempts: $e';
+            if (android133Count > 0) {
+              enhancedError += '\nAdditionally encountered ${android133Count} Android Bluetooth errors (code 133).';
+            }
+            enhancedError += '\n\nSuggestions:\n- Ensure the device is powered on and nearby\n- Move closer to the device\n- Turn Bluetooth off and on\n- Restart the app\n- Check if device is connected to another app';
+            throw Exception(enhancedError);
           }
         }
       }
@@ -546,20 +667,37 @@ class BleService {
       throw Exception('Failed to connect to device after multiple attempts');
     } catch (e) {
       print('Error connecting to device: $e');
+      _updateGlobalConnectionState(false, 'Connection failed');
       throw Exception('Failed to connect to device: $e');
     }
   }
 
-  // Clean up JSON string, remove invalid characters
+  // Clean up JSON string, remove invalid characters and extract valid JSON
   String _cleanJsonString(String input) {
-    // Find the first '{' and the last '}', extract the content in between
+    if (input.isEmpty) return input;
+    
+    print('Cleaning input string: "$input"');
+    
+    // First pass: find the first '{' and the last '}'
     int startIndex = input.indexOf('{');
     int endIndex = input.lastIndexOf('}');
 
     if (startIndex >= 0 && endIndex > startIndex) {
-      return input.substring(startIndex, endIndex + 1);
+      String cleaned = input.substring(startIndex, endIndex + 1);
+      print('Extracted JSON substring: "$cleaned"');
+      
+      // Second pass: remove any control characters or invalid UTF-8 sequences
+      cleaned = cleaned.replaceAll(RegExp(r'[\x00-\x1F\x7F]'), '');
+      
+      // Third pass: ensure proper JSON structure
+      // Remove any trailing commas before closing braces/brackets
+      cleaned = cleaned.replaceAll(RegExp(r',(\s*[}\]])'), r'$1');
+      
+      print('Final cleaned JSON: "$cleaned"');
+      return cleaned;
     }
 
+    print('No valid JSON structure found, returning original');
     // If a complete JSON structure is not found, return the original string
     return input;
   }
@@ -605,14 +743,29 @@ class BleService {
       Completer<String> completer = Completer<String>();
       StreamSubscription<List<int>>? subscription;
 
+      // Buffer to collect fragmented data
+      List<int> dataBuffer = [];
+      int fragmentCount = 0;
+
       // Set timeout (will be reset when we start receiving data)
       Timer? timer;
       
       void startTimeout() {
         timer?.cancel();
-        timer = Timer(const Duration(seconds: 60), () {
+        // Use different timeout based on whether we're receiving fragments
+        Duration timeoutDuration = dataBuffer.isEmpty 
+          ? const Duration(seconds: 60)  // Initial timeout
+          : const Duration(seconds: 30); // Fragment timeout (shorter)
+        
+        timer = Timer(timeoutDuration, () {
           if (!completer.isCompleted) {
             subscription?.cancel();
+            if (dataBuffer.isNotEmpty) {
+              print('Timeout during fragment reception. Received $fragmentCount fragments, ${dataBuffer.length} bytes total');
+              print('Partial data: "${String.fromCharCodes(dataBuffer)}"');
+            } else {
+              print('Timeout waiting for initial response');
+            }
             completer.complete(defaultResult);
             print('Timeout getting WiFi config result, returning default state');
           }
@@ -622,12 +775,25 @@ class BleService {
       // Start initial timeout
       startTimeout();
 
-      // Buffer to collect fragmented data
-      List<int> dataBuffer = [];
+      print('*** Setting up listener for characteristic: ${wifiConfigChar.uuid}');
+      print('*** Characteristic properties: write=${wifiConfigChar.properties.write}, notify=${wifiConfigChar.properties.notify}, indicate=${wifiConfigChar.properties.indicate}');
       
       // Listen to indicate notification
       subscription = wifiConfigChar.onValueReceived.listen((value) {
-        print('Received WiFi config result notification: ${value.length} bytes');
+        print('*** LISTENER TRIGGERED *** - Raw bytes received: ${value.length}');
+        fragmentCount++;
+        print('=== Fragment $fragmentCount received ===');
+        print('Fragment size: ${value.length} bytes');
+        
+        // Convert bytes to string for debugging
+        String currentFragment;
+        try {
+          currentFragment = utf8.decode(value);
+          print('Fragment content: "$currentFragment"');
+        } catch (e) {
+          print('Fragment contains non-UTF8 data: ${value.map((b) => b.toRadixString(16).padLeft(2, '0')).join(' ')}');
+          currentFragment = '[Binary data]';
+        }
         
         // Reset timeout when we receive data (extend time for fragmented messages)
         if (dataBuffer.isEmpty) {
@@ -648,26 +814,44 @@ class BleService {
           return; // Wait for more data
         }
         
-        print('Current buffered string: $bufferedString');
+        print('Current buffered string: "$bufferedString"');
 
         // Check if we have a complete JSON by looking for matching braces
         int openBraces = 0;
         int closeBraces = 0;
+        bool hasValidStart = false;
+        bool hasValidEnd = false;
+        
         for (int i = 0; i < bufferedString.length; i++) {
-          if (bufferedString[i] == '{') openBraces++;
-          if (bufferedString[i] == '}') closeBraces++;
+          if (bufferedString[i] == '{') {
+            openBraces++;
+            if (!hasValidStart) hasValidStart = true;
+          }
+          if (bufferedString[i] == '}') {
+            closeBraces++;
+            if (i == bufferedString.length - 1 || bufferedString.substring(i+1).trim().isEmpty) {
+              hasValidEnd = true;
+            }
+          }
         }
         
-        // If we have matching braces and at least one complete JSON object
-        if (openBraces > 0 && openBraces == closeBraces) {
+        print('JSON completeness check - Open braces: $openBraces, Close braces: $closeBraces');
+        print('Valid start: $hasValidStart, Valid end: $hasValidEnd');
+        
+        // Check for complete JSON: must have matching braces, valid start and end
+        bool isCompleteJson = openBraces > 0 && openBraces == closeBraces && hasValidStart && hasValidEnd;
+        
+        if (isCompleteJson) {
+          print('Complete JSON detected, processing...');
           // Clean up string, keep only JSON part
           String resultString = _cleanJsonString(bufferedString);
-          print('Cleaned WiFi status string: $resultString');
+          print('Cleaned WiFi status string: "$resultString"');
 
           // Validate JSON
           try {
-            jsonDecode(resultString);
-            print('WiFi status JSON valid');
+            final jsonData = jsonDecode(resultString);
+            print('WiFi status JSON valid: $jsonData');
+            print('Successfully reassembled $fragmentCount fragments into complete JSON');
             
             // Cancel subscription and timer
             subscription?.cancel();
@@ -675,17 +859,20 @@ class BleService {
 
             // Complete Completer
             if (!completer.isCompleted) {
+              print('Completing with result: $resultString');
               completer.complete(resultString);
             }
           } catch (e) {
             print('WiFi status JSON invalid: $e');
+            print('Invalid JSON content: "$resultString"');
             // If JSON is still invalid, wait for more data or timeout
             return;
           }
         } else {
           print('Incomplete JSON, waiting for more data. Braces: open=$openBraces, close=$closeBraces');
+          print('Need more fragments to complete the message...');
         }
-              }, onError: (error) {
+      }, onError: (error) {
         print('WiFi config notification error: $error');
         if (!completer.isCompleted) {
           completer.complete(defaultResult);
@@ -696,8 +883,13 @@ class BleService {
 
       // Enable indicate
       try {
+        print('*** Attempting to enable notifications for characteristic');
+        print('*** Notify supported: ${wifiConfigChar.properties.notify}');
+        print('*** Indicate supported: ${wifiConfigChar.properties.indicate}');
+        
         await wifiConfigChar.setNotifyValue(true);
         print('WiFi config notification enabled');
+        print('*** Listener should now be active and ready to receive data');
 
         // May need to actively request status once
         if (wifiConfigChar.properties.write) {
@@ -705,17 +897,17 @@ class BleService {
             List<int> data = utf8.encode(jsonPayload);
             print('WiFi config data length: ${data.length} bytes');
             
-            // Use allowLongWrite to handle data longer than MTU
+            // Use allowLongWrite to handle long data
             await wifiConfigChar.write(
               data,
               allowLongWrite: true,
-              timeout: 30
+              timeout: 5
             );
             print('WiFi config request sent successfully');
           } catch (e) {
             print('Failed to send WiFi config request with long write: $e');
             
-            // Try alternative approach: smart chunking based on current MTU
+            // Try alternative approach: smart chunking with fixed size
             try {
               await _writeDataWithSmartChunking(wifiConfigChar, utf8.encode(jsonPayload));
               print('WiFi config request sent successfully using smart chunking');
@@ -728,13 +920,9 @@ class BleService {
                 print('WiFi config request sent successfully using traditional chunking');
               } catch (chunkError) {
                 print('Failed to send WiFi config request with all methods: $chunkError');
-                // If all methods fail, complete with error
-                if (!completer.isCompleted) {
-                  subscription?.cancel();
-                  timer?.cancel();
-                  completer.complete('{"error": "Failed to send WiFi config: $e"}');
-                }
-                return await completer.future;
+                print('WARNING: Send failed, but will continue listening for response (device might have received partial data)');
+                // Don't cancel listener immediately - device might still respond
+                // The timeout will handle completion if no response comes
               }
             }
           }
@@ -906,7 +1094,7 @@ class BleService {
     _updateGlobalConnectionState(false, 'Disconnected');
   }
 
-  // Helper method to write data in chunks when MTU is limited
+  // Helper method to write data in chunks
   Future<void> _writeDataInChunks(BluetoothCharacteristic characteristic, List<int> data) async {
     const int chunkSize = 20; // Safe chunk size for BLE
     int offset = 0;
@@ -921,7 +1109,7 @@ class BleService {
       await characteristic.write(
         chunk,
         withoutResponse: offset + chunkSize < data.length, // Use withoutResponse for all chunks except the last one
-        timeout: 10
+        timeout: 5
       );
       
       offset += chunkSize;
@@ -973,38 +1161,10 @@ class BleService {
     }
   }
 
-  // Enhanced MTU negotiation with fallback strategy
-  Future<int> _negotiateOptimalMtu(BluetoothDevice device) async {
-    // Try different MTU sizes in descending order
-    List<int> mtuSizes = [BLE_PREFERRED_MTU, 185, 128, 64, BLE_MIN_MTU];
-    
-    for (int targetMtu in mtuSizes) {
-      try {
-        print('Attempting MTU negotiation: $targetMtu bytes');
-        final negotiatedMtu = await device.requestMtu(targetMtu);
-        _currentMtu = negotiatedMtu;
-        print('MTU successfully negotiated: $negotiatedMtu bytes (max data: ${maxDataLength} bytes)');
-        return negotiatedMtu;
-      } catch (e) {
-        print('MTU $targetMtu negotiation failed: $e');
-        if (targetMtu == BLE_MIN_MTU) {
-          // Even minimum MTU failed, use default
-          _currentMtu = BLE_MIN_MTU;
-          print('Using default MTU: $BLE_MIN_MTU bytes');
-          return BLE_MIN_MTU;
-        }
-        continue;
-      }
-    }
-    
-    _currentMtu = BLE_MIN_MTU;
-    return BLE_MIN_MTU;
-  }
-
-  // Smart chunking based on current MTU
+  // Smart chunking with fixed chunk size
   Future<void> _writeDataWithSmartChunking(BluetoothCharacteristic characteristic, List<int> data) async {
-    final chunkSize = maxDataLength - 1; // Leave 1 byte safety margin
-    print('Using smart chunking with size: $chunkSize bytes (based on MTU: $_currentMtu)');
+    final chunkSize = 20; // Fixed safe chunk size for BLE
+    print('Using fixed chunking with size: $chunkSize bytes');
     
     int offset = 0;
     int chunkIndex = 0;
@@ -1031,7 +1191,7 @@ class BleService {
           await characteristic.write(
             chunk,
             withoutResponse: false,
-            timeout: 10
+            timeout: 5
           );
         }
       } catch (e) {

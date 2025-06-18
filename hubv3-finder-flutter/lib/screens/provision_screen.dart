@@ -8,8 +8,6 @@ import 'package:wifi_scan/wifi_scan.dart';
 import '../models/wifi_network.dart';
 import '../services/ble_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:collection/collection.dart'; // for firstWhereOrNull
-import '../widgets/global_ble_status.dart';
 
 class ProvisionScreen extends StatefulWidget {
   final String deviceId;
@@ -23,7 +21,8 @@ class ProvisionScreen extends StatefulWidget {
 class _ProvisionScreenState extends State<ProvisionScreen> {
   bool _dialogOpen = false;
   StreamSubscription<bool>? _connectionSubscription;
-  bool _isConnected = true;
+  bool _isConnected = false; // Initially not connected
+  String _deviceName = '';
 
   @override
   void dispose() {
@@ -75,6 +74,9 @@ class _ProvisionScreenState extends State<ProvisionScreen> {
   void initState() {
     super.initState();
     
+    // Load device name from SharedPreferences
+    _loadDeviceInfo();
+    
     // Listen to global connection state changes
     _connectionSubscription = BleService.globalConnectionStateStream.listen((isConnected) {
       setState(() {
@@ -82,7 +84,7 @@ class _ProvisionScreenState extends State<ProvisionScreen> {
       });
       
       if (!isConnected) {
-        // Show connection lost message
+        // Show connection lost message only if we were previously connected
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
@@ -90,11 +92,11 @@ class _ProvisionScreenState extends State<ProvisionScreen> {
                 children: const [
                   Icon(Icons.warning, color: Colors.white),
                   SizedBox(width: 8),
-                  Expanded(child: Text('Device connection lost. Attempting to reconnect...')),
+                  Expanded(child: Text('Device connection lost.')),
                 ],
               ),
               backgroundColor: Colors.orange,
-              duration: const Duration(seconds: 3),
+              duration: const Duration(seconds: 2),
             ),
           );
         }
@@ -107,7 +109,7 @@ class _ProvisionScreenState extends State<ProvisionScreen> {
                 children: const [
                   Icon(Icons.check_circle, color: Colors.white),
                   SizedBox(width: 8),
-                  Text('Device reconnected successfully'),
+                  Text('Device connected successfully'),
                 ],
               ),
               backgroundColor: Colors.green,
@@ -121,6 +123,13 @@ class _ProvisionScreenState extends State<ProvisionScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _showLoadingDialog('Scanning WiFi list...');
       _startWiFiScan();
+    });
+  }
+
+  Future<void> _loadDeviceInfo() async {
+    final prefs = await SharedPreferences.getInstance();
+    setState(() {
+      _deviceName = prefs.getString('provision_device_name') ?? 'Unknown Device';
     });
   }
 
@@ -168,45 +177,117 @@ class _ProvisionScreenState extends State<ProvisionScreen> {
 
   Future<void> _provision() async {
     if (!_formKey.currentState!.validate()) return;
-    _showLoadingDialog('Setting WiFi configuration...');
+    
     setState(() {
       _isLoading = true;
     });
     
-    int retryCount = 0;
     const maxRetries = 3;
+    int bleConnectionRetryCount = 0;
+    int configRetryCount = 0;
+    int android133Count = 0; // Track android-code: 133 errors separately
     String? errorMessage;
     
-    while (retryCount < maxRetries) {
+    while (bleConnectionRetryCount < maxRetries) {
       try {
-        // Call BLE provisioning interface with restore=false
+        _showLoadingDialog('Connecting to device (Attempt ${bleConnectionRetryCount + 1}/$maxRetries)...');
+        
+        // Step 1: Connect to BLE device
         final bleService = BleService();
         
-        // If this is a retry attempt, update the dialog
-        if (retryCount > 0) {
+        try {
+          print('[Provision] Attempting BLE connection to device: ${widget.deviceId}');
+          await bleService.connectToDevice(widget.deviceId, enableHttp: false);
+          print('[Provision] BLE connection successful');
+        } catch (bleError) {
+          print('[Provision] BLE connection failed: $bleError');
+          
+          // Check if this is android-code: 133 (don't count towards retry limit)
+          if (bleError.toString().contains('android-code: 133')) {
+            android133Count++;
+            print('[Provision] Android error code 133 detected (count: $android133Count)');
+            _closeDialogIfOpen();
+            _showLoadingDialog('Bluetooth error 133 detected. Retrying connection...');
+            await Future.delayed(const Duration(seconds: 2));
+            continue; // Don't increment bleConnectionRetryCount
+          }
+          
+          bleConnectionRetryCount++;
+          if (bleConnectionRetryCount >= maxRetries) {
+            errorMessage = 'Failed to connect to device after $maxRetries attempts: $bleError';
+            break;
+          }
+          
           _closeDialogIfOpen();
-          _showLoadingDialog('Reconnecting to device (Attempt ${retryCount + 1}/${maxRetries})...');
-          // Add a small delay before retry
-          await Future.delayed(const Duration(milliseconds: 500));
+          _showLoadingDialog('Connection failed. Retrying (${bleConnectionRetryCount + 1}/$maxRetries)...');
+          await Future.delayed(const Duration(seconds: 1));
+          continue;
         }
         
-        final result = await bleService.configureWiFiWithReconnection(
+        // Step 2: Configure WiFi with retry for password errors
+        configRetryCount = 0;
+        while (configRetryCount < maxRetries) {
+          try {
+            _closeDialogIfOpen();
+            _showLoadingDialog('Configuring WiFi (Attempt ${configRetryCount + 1}/$maxRetries)...');
+            
+            final result = await bleService.configureWiFi(
           _selectedSSID ?? '',
           _passwordController.text,
           false
         );
         
-        // Process the result - successful connection, exit retry loop
+            print('[Provision] WiFi configuration result: $result');
+            
+            // Process the result
         final Map<String, dynamic> json = result is String ? Map<String, dynamic>.from(jsonDecode(result)) : {};
         
-        // Check for connection errors first
+            // Check for explicit errors first
         if (json.containsKey('error')) {
           errorMessage = json['error'];
-          break; // Exit retry loop for explicit errors
-        }
-        
-        if (json['connected'] == true && json['ip_address'] != null && json['ip_address'].toString().isNotEmpty) {
-        // Provisioning successful, save information
+              print('[Provision] Configuration returned error: $errorMessage');
+              
+              // Check if this might be a password error
+              if (errorMessage!.toLowerCase().contains('password') || 
+                  errorMessage!.toLowerCase().contains('auth') ||
+                  errorMessage!.toLowerCase().contains('credential')) {
+                print('[Provision] Possible password error detected');
+                configRetryCount++;
+                if (configRetryCount >= maxRetries) {
+                  // Close BLE connection before showing error
+                  await bleService.disconnect();
+                  errorMessage = 'WiFi configuration failed after $maxRetries attempts. Please check your password and try again.';
+                  break;
+                }
+                
+                // Close BLE connection and reconnect for retry
+                await bleService.disconnect();
+                await Future.delayed(const Duration(seconds: 1));
+                
+                _closeDialogIfOpen();
+                _showLoadingDialog('Password error. Reconnecting for retry (${configRetryCount + 1}/$maxRetries)...');
+                
+                // Reconnect BLE
+                try {
+                  await bleService.connectToDevice(widget.deviceId, enableHttp: false);
+                  continue; // Retry WiFi configuration
+                } catch (reconnectError) {
+                  print('[Provision] Failed to reconnect after password error: $reconnectError');
+                  errorMessage = 'Failed to reconnect to device after password error: $reconnectError';
+                  break;
+                }
+              } else {
+                // Other error, break out of config retry loop
+                break;
+              }
+            } else if (json['connected'] == true && json['ip_address'] != null && json['ip_address'].toString().isNotEmpty) {
+              // Success!
+              print('[Provision] WiFi configuration successful');
+              
+              // Close BLE connection
+              await bleService.disconnect();
+              
+              // Save device information
         final prefs = await SharedPreferences.getInstance();
         await prefs.setString('selected_device_ip', json['ip_address']);
         await prefs.setString('selected_device_id', widget.deviceId);
@@ -216,26 +297,20 @@ class _ProvisionScreenState extends State<ProvisionScreen> {
           await prefs.setString('selected_ssid', _selectedSSID!);
         }
         
-        // Get current device name (optional, retrieve from BLEService or pass it)
-        String? deviceName;
-        try {
-          // Use singleton instance to access discovered devices
-          final devices = BleService().discoveredDevices;
-          final match = devices.firstWhereOrNull((d) => d.id == widget.deviceId);
-          if (match != null && match.name != null) {
-            deviceName = match.name;
-            await prefs.setString('selected_device_name', deviceName!);
-          }
-        } catch (_) {}
+              // Save device name
+              if (_deviceName.isNotEmpty) {
+                await prefs.setString('selected_device_name', _deviceName);
+              }
         
         // Call the success callback if provided
         if (widget.onProvisionSuccess != null) {
           widget.onProvisionSuccess!(json['ip_address']);
         }
         
+              _closeDialogIfOpen();
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Provisioning successful, redirecting...'), 
+                  content: Text('WiFi configuration successful! Returning to home page.'), 
             backgroundColor: Colors.green
           )
         );
@@ -244,43 +319,88 @@ class _ProvisionScreenState extends State<ProvisionScreen> {
         if (mounted) {
           Navigator.of(context).pushNamedAndRemoveUntil('/', (route) => false);
         }
-        // Success! Break out of the retry loop
-        break;
-      } else {
-        // WiFi configuration failed but not due to BLE connection issue
-        errorMessage = 'Failed to configure WiFi. Please check the password and try again.';
-        break; // Exit retry loop for non-BLE errors
-      }
-      } catch (e) {
-        print('Error configuring WiFi networks: $e');
-        errorMessage = 'Error: $e';
-        
-        // Check if this is a BLE connection error that we should retry
-        if (e.toString().contains('FlutterBluePlusException') && 
-            e.toString().contains('device is not connected')) {
-          retryCount++;
-          if (retryCount < maxRetries) {
-            print('BLE connection lost. Retrying (${retryCount}/$maxRetries)...');
-            continue; // Try again
-          } else {
-            errorMessage = 'Failed to connect to device after $maxRetries attempts. Please try again.';
+              return; // Success, exit function
+            } else {
+              // WiFi configuration failed but not due to explicit error
+              configRetryCount++;
+              if (configRetryCount >= maxRetries) {
+                await bleService.disconnect();
+                errorMessage = 'WiFi configuration failed. Please check your network settings and try again.';
+                break;
+              }
+              
+              // Close BLE connection and reconnect for retry
+              await bleService.disconnect();
+              await Future.delayed(const Duration(seconds: 1));
+              
+              _closeDialogIfOpen();
+              _showLoadingDialog('Configuration failed. Reconnecting for retry (${configRetryCount + 1}/$maxRetries)...');
+              
+              // Reconnect BLE
+              try {
+                await bleService.connectToDevice(widget.deviceId, enableHttp: false);
+                continue; // Retry WiFi configuration
+              } catch (reconnectError) {
+                print('[Provision] Failed to reconnect for config retry: $reconnectError');
+                errorMessage = 'Failed to reconnect to device for retry: $reconnectError';
+                break;
+              }
+            }
+          } catch (configError) {
+            print('[Provision] WiFi configuration error: $configError');
+            configRetryCount++;
+            
+            if (configRetryCount >= maxRetries) {
+              await bleService.disconnect();
+              errorMessage = 'WiFi configuration failed after $maxRetries attempts: $configError';
+              break;
+            }
+            
+            // Close BLE connection and reconnect for retry
+            await bleService.disconnect();
+            await Future.delayed(const Duration(seconds: 1));
+            
+            _closeDialogIfOpen();
+            _showLoadingDialog('Configuration error. Reconnecting for retry (${configRetryCount + 1}/$maxRetries)...');
+            
+            // Reconnect BLE
+            try {
+              await bleService.connectToDevice(widget.deviceId, enableHttp: false);
+              continue; // Retry WiFi configuration
+            } catch (reconnectError) {
+              print('[Provision] Failed to reconnect after config error: $reconnectError');
+              errorMessage = 'Failed to reconnect to device after configuration error: $reconnectError';
+              break;
+            }
           }
+        }
+        
+        // If we reach here, either success or config error
+        break;
+        
+      } catch (e) {
+        print('[Provision] General error: $e');
+        bleConnectionRetryCount++;
+        
+        if (bleConnectionRetryCount >= maxRetries) {
+          errorMessage = 'Provision failed after $maxRetries attempts: $e';
         } else {
-          // Not a BLE connection error, don't retry
-          break;
+          _closeDialogIfOpen();
+          _showLoadingDialog('Error occurred. Retrying (${bleConnectionRetryCount + 1}/$maxRetries)...');
+          await Future.delayed(const Duration(seconds: 1));
         }
       }
     }
     
-    // After all retries, check if we had an error
+    // Show error if we failed after all retries
     if (errorMessage != null) {
+      _closeDialogIfOpen();
       _showErrorSnackBar(errorMessage);
     }
     
     setState(() {
       _isLoading = false;
     });
-    _closeDialogIfOpen(); // Close the WiFi configuration dialog
   }
   
   void _showErrorSnackBar(String message) {
@@ -294,32 +414,6 @@ class _ProvisionScreenState extends State<ProvisionScreen> {
       );
     }
   }
-  
-  void _showBluetoothErrorDialog(String title, String message) {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text(title),
-        content: Text(message),
-        actions: [
-          TextButton(
-            onPressed: () {
-              Navigator.of(context).pop();
-            },
-            child: const Text('OK'),
-          ),
-          TextButton(
-            onPressed: () {
-              Navigator.of(context).pop();
-              Navigator.of(context).pop(); // Go back to previous screen
-            },
-            child: const Text('Go Back'),
-          ),
-        ],
-      ),
-    );
-  }
-
 
   Widget _buildWifiWidget(BuildContext context) {
     return _isLoading
@@ -328,6 +422,45 @@ class _ProvisionScreenState extends State<ProvisionScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                // Device information card
+                Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Selected Device',
+                          style: Theme.of(context).textTheme.titleLarge,
+                        ),
+                        const Divider(),
+                        Row(
+                          children: [
+                            Icon(
+                              Icons.bluetooth,
+                              color: _isConnected ? Colors.green : Colors.grey,
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                _deviceName,
+                                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
+                              ),
+                            ),
+                            Text(
+                              _isConnected ? 'Connected' : 'Not Connected',
+                              style: TextStyle(
+                                color: _isConnected ? Colors.green : Colors.grey,
+                                fontSize: 12,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
                 Card(
                   child: Padding(
                     padding: const EdgeInsets.all(16),
@@ -475,11 +608,11 @@ class _ProvisionScreenState extends State<ProvisionScreen> {
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
                               ElevatedButton.icon(
-                                onPressed: _isConnected ? _provision : null,
-                                icon: Icon(_isConnected ? Icons.wifi : Icons.bluetooth_disabled),
-                                label: Text(_isConnected ? 'Connect' : 'Device Disconnected'),
+                                onPressed: _isLoading ? null : _provision,
+                                icon: Icon(_isLoading ? Icons.hourglass_empty : Icons.wifi),
+                                label: Text(_isLoading ? 'Connecting...' : 'Connect'),
                                 style: ElevatedButton.styleFrom(
-                                  backgroundColor: _isConnected ? Colors.blue : Colors.grey,
+                                  backgroundColor: _isLoading ? Colors.grey : Colors.blue,
                                   foregroundColor: Colors.white,
                                 ),
                               ),
@@ -500,18 +633,6 @@ class _ProvisionScreenState extends State<ProvisionScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('WiFi Configuration'),
-        actions: [
-          // Global connection status indicator
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            child: const GlobalBleStatus(
-              showIcon: true,
-              showText: true,
-              iconSize: 20,
-              fontSize: 12,
-            ),
-          ),
-        ],
       ),
       body: Padding(
         padding: const EdgeInsets.symmetric(vertical: 16.0, horizontal: 12.0),

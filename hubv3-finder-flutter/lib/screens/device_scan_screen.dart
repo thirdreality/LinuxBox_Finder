@@ -55,12 +55,33 @@ class _DeviceScanScreenState extends State<DeviceScanScreen> {
       });
     }
     
-    await _bleService.startScan();
-    
-    if (mounted) {
-      setState(() {
-        _isScanning = false;
-      });
+    try {
+      await _bleService.startScan();
+    } catch (e) {
+      print('Error scanning for devices: $e');
+      
+      if (mounted) {
+        // Check if this is a location services error
+        if (e.toString().contains('Location services') || 
+            e.toString().contains('location')) {
+          _showLocationServicesDialog();
+        } else {
+          // Show generic error
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Error scanning for devices: $e'),
+              backgroundColor: Colors.red,
+              duration: const Duration(seconds: 5),
+            ),
+          );
+        }
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isScanning = false;
+        });
+      }
     }
   }
 
@@ -104,10 +125,10 @@ class _DeviceScanScreenState extends State<DeviceScanScreen> {
     );
   }
 
-  void _onConnectToDevice(BleDevice device, {bool enableHttp = true, bool showPrompt = true}) async {
-    // Ensure scanning is stopped before attempting to connect
+  void _onSelectDevice(BleDevice device) async {
+    // Stop scanning first
     if (_isScanning) {
-      print('DeviceScanScreen: Stopping scan before connecting...');
+      print('DeviceScanScreen: Stopping scan before selecting...');
       await _bleService.stopScan();
       if (mounted) {
         setState(() {
@@ -117,30 +138,31 @@ class _DeviceScanScreenState extends State<DeviceScanScreen> {
       print('DeviceScanScreen: Scan stopped.');
     }
 
-    // Check if there is an IP address and it is not 0
+    // Check if device has IP address and is already connected
     final hasIp = device.ipAddress != null && device.ipAddress!.isNotEmpty && device.ipAddress != '0.0.0.0';
-    if (hasIp && enableHttp) {
-      // HTTP mode, configure HTTP Service and check connectivity
+    if (hasIp) {
+      // Device has IP address, check if it's already connected
       showDialog(
         context: context,
         barrierDismissible: false,
         builder: (context) => const AlertDialog(
-          title: Text('Connecting'),
+          title: Text('Checking Device'),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               CircularProgressIndicator(),
               SizedBox(height: 16),
-              Text('Connecting to device by ip address ...'),
+              Text('Checking device connection...'),
             ],
           ),
         ),
       );
+      
       try {
         // Configure HTTP service with device IP
         _httpService.configure(device.ipAddress!);
         
-        // Get WiFi status instead of just checking connectivity
+        // Get WiFi status to check if device is already connected
         final wifiStatusResponse = await _httpService.getWifiStatus();
         final wifiStatus = jsonDecode(wifiStatusResponse);
         
@@ -150,8 +172,8 @@ class _DeviceScanScreenState extends State<DeviceScanScreen> {
         }
         
         if (wifiStatus['connected'] == true) {
-          // HTTP connection successful, save device information
-          print('HTTP connection successful');
+          // Device is already connected to WiFi, save device information and return to home
+          print('Device already connected to WiFi');
           print('device.id = ${device.id}');
           print('device.ipAddress = ${device.ipAddress}');
           print('device.name = ${device.name}');
@@ -171,104 +193,98 @@ class _DeviceScanScreenState extends State<DeviceScanScreen> {
           if (device.name != null) {
             await prefs.setString('selected_device_name', device.name!);
           }
+          
+          // Show success message and return to home page
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Device already connected. Returning to home page.'),
+              backgroundColor: Colors.green,
+            ),
+          );
+          
           // Return to home page and refresh
           if (mounted) {
-          Navigator.of(context).pushNamedAndRemoveUntil('/', (route) => false);
-        }
-      } else {
-          // HTTP connection failed, show network configuration dialog
-          _showNetworkConfigDialog(device);
+            Navigator.of(context).pushNamedAndRemoveUntil('/', (route) => false);
+          }
+          return;
+        } else {
+          // Device has IP but not connected to WiFi, proceed to provision
+          _navigateToProvision(device);
         }
       } catch (e) {
         // Close the loading dialog if still open
         if (mounted && Navigator.of(context).canPop()) {
           Navigator.of(context).pop();
         }
-        _showNetworkConfigDialog(device);
+        // HTTP connection failed, proceed to provision
+        _navigateToProvision(device);
       }
     } else {
+      // Device has no IP address, proceed to provision
+      _navigateToProvision(device);
+    }
+  }
 
-      // Connect BLE first, ensure BLE is connected before entering provisioning page
-      // Show loading dialog
-      showDialog(
-        context: context,
-        barrierDismissible: false,
-        builder: (context) => const AlertDialog(
-          title: Text('Connecting'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              CircularProgressIndicator(),
-              SizedBox(height: 16),
-              Text('Connecting to device ...'),
-            ],
-          ),
-        ),
-      );
-      
-      try {
-        await _bleService.connectToDevice(device.id, enableHttp: false);
-        
-        // Close the loading dialog
-        if (mounted && Navigator.of(context).canPop()) {
-          Navigator.of(context).pop();
-        }
-        
-        // After successful connection, navigate to ProvisionScreen
-        final result = await Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (context) => ProvisionScreen(deviceId: device.id),
-          ),
-        );
-        // Provisioning success, saving info and navigation logic handled in provision_screen, no need to navigate here
-      } catch (e) {
-        // Close the loading dialog if still open
-        if (mounted && Navigator.of(context).canPop()) {
-          Navigator.of(context).pop();
-        }
-        _showConnectionErrorDialog(e.toString(), device);
+  void _navigateToProvision(BleDevice device) async {
+    // Save the selected device to SharedPreferences for the provision screen
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('provision_device_id', device.id);
+    await prefs.setString('provision_device_name', device.name);
+    if (device.ipAddress != null) {
+      await prefs.setString('provision_device_ip', device.ipAddress!);
+    }
+    
+    // Navigate to ProvisionScreen without connecting BLE first
+    final result = await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => ProvisionScreen(deviceId: device.id),
+      ),
+    );
+    
+    // If provision was successful, result should contain device info
+    if (result != null && result is Map<String, dynamic>) {
+      if (mounted) {
+        Navigator.of(context).pushNamedAndRemoveUntil('/', (route) => false);
       }
     }
   }
 
-  // Show network configuration dialog when HTTP connection fails
-  void _showNetworkConfigDialog(BleDevice device) async {
-    // Get the saved SSID from SharedPreferences
-    final prefs = await SharedPreferences.getInstance();
-    final savedSsid = prefs.getString('selected_ssid') ?? 'Unknown';
-    
+  // Show location services dialog when location services are disabled
+  void _showLocationServicesDialog() {
     showDialog(
       context: context,
+      barrierDismissible: false,
       builder: (context) => AlertDialog(
-        title: const Text('WiFi provision'),
+        title: Row(
+          children: const [
+            Icon(Icons.location_off, color: Colors.orange),
+            SizedBox(width: 8),
+            Text('Location Services Required'),
+          ],
+        ),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text.rich(TextSpan(
-              children: [
-                TextSpan(text: 'If you want to connect to an existing device, please confirm that the App and device are connected to the same wireless network: '),
-                TextSpan(text: savedSsid, style: TextStyle(fontWeight: FontWeight.bold)),
-              ],
-            )),
-            SizedBox(height: 12),
-            Text('If you want to connect this device to a new wireless network, please follow these steps:'),
+          children: const [
+            Text(
+              'Android requires location services to be enabled for Bluetooth device scanning.',
+              style: TextStyle(fontSize: 16),
+            ),
+            SizedBox(height: 16),
+            Text(
+              'This is required by Android 8.0+ for security reasons, even though we only use Bluetooth and not GPS location.',
+              style: TextStyle(fontSize: 14, color: Colors.grey),
+            ),
+            SizedBox(height: 16),
+            Text(
+              'Steps to enable:',
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
             SizedBox(height: 8),
-            Text.rich(TextSpan(
-              children: [
-                TextSpan(text: '1. Press and hold the button on the device for 7-8 seconds until the LED changes from GREEN to '),
-                TextSpan(text: 'YELLOW', style: TextStyle(fontWeight: FontWeight.bold)),
-                TextSpan(text: ', then release the button'),
-              ],
-            )),
-            SizedBox(height: 8),
-            Text.rich(TextSpan(
-              children: [
-                TextSpan(text: '2. Click '),
-                TextSpan(text: 'Next', style: TextStyle(fontWeight: FontWeight.bold)),
-              ],
-            )),
+            Text('1. Tap "Open Settings" below'),
+            Text('2. Turn on "Use location"'),
+            Text('3. Return to the app and try scanning again'),
           ],
         ),
         actions: [
@@ -276,58 +292,26 @@ class _DeviceScanScreenState extends State<DeviceScanScreen> {
             onPressed: () {
               Navigator.of(context).pop();
             },
-            child: const Text('Back'),
+            child: const Text('Cancel'),
           ),
           ElevatedButton(
             onPressed: () async {
               Navigator.of(context).pop();
-              _onConnectToDevice(device, enableHttp: false, showPrompt: false);
-              //await _bleService.connectToDevice(device.id, enableHttp: false);
+              // Try to open location settings
+              bool opened = await _bleService.openLocationSettings();
+              if (!opened) {
+                // Fallback: show instructions to manually open settings
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Please manually open Settings → Location and enable location services'),
+                      duration: Duration(seconds: 5),
+                    ),
+                  );
+                }
+              }
             },
-            child: const Text('Next'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _showConnectionErrorDialog(String errorMessage, BleDevice device) {
-    String errorTitle = 'Connection Failed';
-    String errorDetails = errorMessage;
-    String errorGuide = 'Please try the following:\n- Ensure the device is powered on and nearby\n- Turn off and on your phone\'s Bluetooth\n- Restart the application';
-    
-    // Check if it's Android error code 133
-    if (errorMessage.contains('android-code: 133')) {
-      errorTitle = 'Bluetooth Connection Error (Code: 133)';
-      errorDetails = 'Unable to connect to the device. Possible reasons:\n1. Device is connected to another application\n2. Device is out of range or powered off\n3. Phone Bluetooth has issues';
-    }
-    
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text(errorTitle),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(errorDetails),
-            const SizedBox(height: 16),
-            Text(errorGuide),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () {
-              Navigator.of(context).pop();
-            },
-            child: const Text('Close'),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              Navigator.of(context).pop();
-              _onConnectToDevice(device, enableHttp: false, showPrompt: false);
-            },
-            child: const Text('Retry Connection'),
+            child: const Text('Open Settings'),
           ),
         ],
       ),
@@ -379,9 +363,9 @@ class _DeviceScanScreenState extends State<DeviceScanScreen> {
             ),
             trailing: ElevatedButton(
               onPressed: () async {
-                _onConnectToDevice(device);
+                _onSelectDevice(device);
               },
-              child: const Text('Connect'),
+              child: const Text('Select'),
             ),
             isThreeLine: true,
           ),
