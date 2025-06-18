@@ -61,20 +61,14 @@ class _DeviceScanScreenState extends State<DeviceScanScreen> {
       print('Error scanning for devices: $e');
       
       if (mounted) {
-        // Check if this is a location services error
-        if (e.toString().contains('Location services') || 
-            e.toString().contains('location')) {
-          _showLocationServicesDialog();
-        } else {
-          // Show generic error
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Error scanning for devices: $e'),
-              backgroundColor: Colors.red,
-              duration: const Duration(seconds: 5),
-            ),
-          );
-        }
+        // Show generic error
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error scanning for devices: $e'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 5),
+          ),
+        );
       }
     } finally {
       if (mounted) {
@@ -250,73 +244,7 @@ class _DeviceScanScreenState extends State<DeviceScanScreen> {
     }
   }
 
-  // Show location services dialog when location services are disabled
-  void _showLocationServicesDialog() {
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => AlertDialog(
-        title: Row(
-          children: const [
-            Icon(Icons.location_off, color: Colors.orange),
-            SizedBox(width: 8),
-            Text('Location Services Required'),
-          ],
-        ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: const [
-            Text(
-              'Android requires location services to be enabled for Bluetooth device scanning.',
-              style: TextStyle(fontSize: 16),
-            ),
-            SizedBox(height: 16),
-            Text(
-              'This is required by Android 8.0+ for security reasons, even though we only use Bluetooth and not GPS location.',
-              style: TextStyle(fontSize: 14, color: Colors.grey),
-            ),
-            SizedBox(height: 16),
-            Text(
-              'Steps to enable:',
-              style: TextStyle(fontWeight: FontWeight.bold),
-            ),
-            SizedBox(height: 8),
-            Text('1. Tap "Open Settings" below'),
-            Text('2. Turn on "Use location"'),
-            Text('3. Return to the app and try scanning again'),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () {
-              Navigator.of(context).pop();
-            },
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () async {
-              Navigator.of(context).pop();
-              // Try to open location settings
-              bool opened = await _bleService.openLocationSettings();
-              if (!opened) {
-                // Fallback: show instructions to manually open settings
-                if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Please manually open Settings → Location and enable location services'),
-                      duration: Duration(seconds: 5),
-                    ),
-                  );
-                }
-              }
-            },
-            child: const Text('Open Settings'),
-          ),
-        ],
-      ),
-    );
-  }
+
   
   Widget _buildDeviceList() {
     if (_devices.isEmpty) {

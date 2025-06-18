@@ -4,25 +4,22 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
-    <!-- Bluetooth hardware feature declaration -->
-    <uses-feature android:name="android.hardware.bluetooth" android:required="false" />
+    <!-- Tell Google Play Store that your app uses Bluetooth LE
+         Set android:required="true" if bluetooth is necessary -->
     <uses-feature android:name="android.hardware.bluetooth_le" android:required="false" />
 
-    <!-- Legacy Bluetooth permissions (required for Huawei/HarmonyOS compatibility) -->
-    <uses-permission android:name="android.permission.BLUETOOTH" />
-    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" />
-    
-    <!-- Location permissions (required for BLE scanning on Android 6.0-11) -->
-    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
-    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
-    
-    <!-- Background location permission (optional, for apps that need it) -->
-    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
-
-    <!-- New Bluetooth permissions for Android 12+ -->
-    <uses-permission android:name="android.permission.BLUETOOTH_SCAN" />
-    <uses-permission android:name="android.permission.BLUETOOTH_ADVERTISE" />
+    <!-- New Bluetooth permissions in Android 12
+    https://developer.android.com/about/versions/12/features/bluetooth-permissions -->
+    <uses-permission android:name="android.permission.BLUETOOTH_SCAN"/>
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+
+    <!-- legacy for Android 11 or lower -->
+    <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
+    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30" />
+
+    <!-- legacy for Android 9 or lower -->
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" android:maxSdkVersion="28" />
 
     <application
         android:label="Hub Finder"

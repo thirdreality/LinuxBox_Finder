@@ -36,13 +36,12 @@ dependencies:
   cupertino_icons: ^1.0.8
   flutter_blue_plus: ^1.35.5
   wifi_scan: ^0.4.1+2
-  permission_handler: ^11.4.0
+  permission_handler: ^12.0.0+1
   crypto: ^3.0.6
   shared_preferences: ^2.5.2
   url_launcher: ^6.2.6
   http: ^1.2.0
-  device_info_plus: ^10.1.0
-  geolocator: ^12.0.0
+
 
 dev_dependencies:
   flutter_test:

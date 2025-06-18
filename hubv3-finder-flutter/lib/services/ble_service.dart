@@ -1,9 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io' show Platform;
 import 'package:crypto/crypto.dart';
-import 'package:device_info_plus/device_info_plus.dart';
-import 'package:geolocator/geolocator.dart';
 
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -86,172 +83,53 @@ class BleService {
   bool _isReconnecting = false;
   String? _lastDeviceId;
   StreamSubscription<BluetoothConnectionState>? _connectionSubscription;
-  Timer? _connectionCheckTimer;
 
-  // MTU utility methods - Fixed MTU
-  static const int BLE_MTU = 23; // Fixed MTU value
-  
-  int _currentMtu = BLE_MTU;
-  int get currentMtu => _currentMtu;
-  int get maxDataLength => _currentMtu - 3; // Subtract ATT header (3 bytes)
-
-  // Huawei/HarmonyOS detection and handling
-  bool _isHuaweiDevice = false;
-  bool get isHuaweiDevice => _isHuaweiDevice;
-
-  // Check if location services are enabled (required for Android 8.0+ BLE scanning)
-  Future<void> _checkLocationServices() async {
-    if (!Platform.isAndroid) return; // Only check on Android
-    
-    bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
-    if (!serviceEnabled) {
-      throw Exception('Location services are disabled. Please enable location services in your device settings for Bluetooth scanning to work.');
-    }
-    
-    print('Location services are enabled - BLE scanning allowed');
-  }
-
-  // Open location settings for user to enable location services
-  Future<bool> openLocationSettings() async {
-    try {
-      return await Geolocator.openLocationSettings();
-    } catch (e) {
-      print('Error opening location settings: $e');
-      return false;
-    }
-  }
-
-  // Detect if running on Huawei/HarmonyOS device
-  Future<bool> _detectHuaweiDevice() async {
-    if (!Platform.isAndroid) return false;
-    
-    try {
-      DeviceInfoPlugin deviceInfo = DeviceInfoPlugin();
-      AndroidDeviceInfo androidInfo = await deviceInfo.androidInfo;
-      
-      String manufacturer = androidInfo.manufacturer.toLowerCase();
-      String brand = androidInfo.brand.toLowerCase();
-      String model = androidInfo.model.toLowerCase();
-      
-      _isHuaweiDevice = manufacturer.contains('huawei') || 
-                       brand.contains('huawei') ||
-                       brand.contains('honor') ||
-                       manufacturer.contains('honor');
-      
-      print('Device Info: Manufacturer=$manufacturer, Brand=$brand, Model=$model');
-      print('Is Huawei/HarmonyOS device: $_isHuaweiDevice');
-      
-      return _isHuaweiDevice;
-    } catch (e) {
-      print('Error detecting device type: $e');
-      return false;
-    }
-  }
-
-  // Special permission request for Huawei devices
-  Future<bool> _requestHuaweiPermissions() async {
-    print('Requesting permissions for Huawei/HarmonyOS device...');
-    
-    // For Huawei devices, request permissions one by one with delays
-    List<Permission> permissions = [
-      Permission.bluetooth,
-      Permission.location,
-      Permission.bluetoothScan,
-      Permission.bluetoothConnect,
-    ];
-    
-    for (Permission permission in permissions) {
-      try {
-        PermissionStatus status = await permission.request();
-        print('Permission $permission status: $status');
-        
-        if (status.isPermanentlyDenied) {
-          print('Permission $permission permanently denied - opening settings');
-          await openAppSettings();
-          return false;
-        }
-        
-        // Small delay between permission requests for Huawei compatibility
-        await Future.delayed(const Duration(milliseconds: 500));
-      } catch (e) {
-        print('Error requesting permission $permission: $e');
-      }
-    }
-    
-    return true;
-  }
+  // MTU is fixed at 23 bytes (BLE minimum)
+  // Long Write handles data larger than MTU automatically via prep/execute write sequence
+  static const int BLE_MTU = 23;
 
   // Initialize BLE
   Future<bool> initialize() async {
     try {
-      // Detect device type first
-      await _detectHuaweiDevice();
-      
-      // Use special permission handling for Huawei devices
-      if (_isHuaweiDevice) {
-        bool permissionsGranted = await _requestHuaweiPermissions();
-        if (!permissionsGranted) {
-          print('Failed to get required permissions on Huawei device');
-          return false;
-        }
-      } else {
-        // Standard permission request for other devices
-        Map<Permission, PermissionStatus> permissions = await [
-          Permission.bluetooth,          // Legacy Bluetooth permission
-          Permission.bluetoothScan,     // Android 12+ BLE scan permission
-          Permission.bluetoothConnect,  // Android 12+ BLE connect permission
-          Permission.location,          // Location permission (required for BLE scanning)
-          Permission.locationWhenInUse, // Alternative location permission
-        ].request();
+      // Request Bluetooth permissions
+      Map<Permission, PermissionStatus> permissions = await [
+        Permission.bluetoothScan,     // Android 12+ BLE scan permission
+        Permission.bluetoothConnect,  // Android 12+ BLE connect permission
+        Permission.bluetooth,         // Legacy Bluetooth permission
+      ].request();
 
-        // Check if any critical permissions were denied
-        List<String> deniedPermissions = [];
-        permissions.forEach((permission, status) {
-          if (status.isDenied || status.isPermanentlyDenied) {
-            deniedPermissions.add(permission.toString());
-          }
-        });
-
-        if (deniedPermissions.isNotEmpty) {
-          print('Some permissions were denied: $deniedPermissions');
-          // Continue anyway as some permissions might not be required on all devices
+      // Check if any critical permissions were denied
+      List<String> deniedPermissions = [];
+      permissions.forEach((permission, status) {
+        if (status.isDenied || status.isPermanentlyDenied) {
+          deniedPermissions.add(permission.toString());
         }
+      });
+
+      if (deniedPermissions.isNotEmpty) {
+        print('Some permissions were denied: $deniedPermissions');
+        // Continue anyway as some permissions might not be required on all devices
       }
 
       // Check if Bluetooth is available and turned on
-      bool isAvailable;
-      bool isOn;
+      bool isSupported;
       
       try {
-        isAvailable = await FlutterBluePlus.isAvailable;
+        isSupported = await FlutterBluePlus.isSupported;
       } catch (e) {
-        print('Error checking Bluetooth availability: $e');
-        // On Huawei/HarmonyOS, this might fail due to permission issues
-        if (e.toString().contains('BLUETOOTH')) {
-          print('Bluetooth permission error detected - likely Huawei/HarmonyOS device');
-          return false;
-        }
-        isAvailable = false;
+        print('Error checking Bluetooth support: $e');
+        isSupported = false;
       }
 
-      if (!isAvailable) {
-        print('Bluetooth is not available on this device');
+      if (!isSupported) {
+        print('Bluetooth is not supported on this device');
         return false;
       }
 
-      try {
-        isOn = await FlutterBluePlus.isOn;
-      } catch (e) {
-        print('Error checking Bluetooth status: $e');
-        if (e.toString().contains('BLUETOOTH')) {
-          print('Bluetooth permission error - please enable Bluetooth permissions manually');
-          return false;
-        }
-        isOn = false;
-      }
-
-      if (!isOn) {
-        print('Bluetooth is not turned on');
+      // Check Bluetooth adapter state
+      BluetoothAdapterState adapterState = await FlutterBluePlus.adapterState.first;
+      if (adapterState != BluetoothAdapterState.on) {
+        print('Bluetooth is not turned on, current state: $adapterState');
         return false;
       }
 
@@ -269,14 +147,6 @@ class BleService {
     try {
       _discoveredDevices.clear();
 
-      // Check if location services are enabled (required for Android 8.0+)
-      try {
-        await _checkLocationServices();
-      } catch (e) {
-        print('Location services check failed: $e');
-        throw Exception('Location services must be enabled for Bluetooth scanning. Please enable location services in your device settings and try again.');
-      }
-
       // Listen to scan results
       FlutterBluePlus.scanResults.listen((results) {
         for (ScanResult result in results) {
@@ -290,7 +160,7 @@ class BleService {
           print('[1]find deviceName $deviceName');
 
           if (deviceName.contains('3RHUB-') ||
-              result.advertisementData.serviceUuids.contains(SERVICE_UUID)) {
+              result.advertisementData.serviceUuids.map((uuid) => uuid.toString().toLowerCase()).contains(SERVICE_UUID.toLowerCase())) {
 
             print('[2]find deviceName $deviceName');
             print('[2]find deviceName: ${result.device.remoteId.str}');
@@ -599,9 +469,8 @@ class BleService {
             print('BleService: Could not set connection priority: $e (continuing anyway)');
           }
 
-          // Fixed MTU - no negotiation needed
-          _currentMtu = BLE_MTU;
-          print('Using fixed MTU: $BLE_MTU bytes');
+          // MTU fixed at minimum value - Long Write handles larger data automatically
+          print('Using fixed MTU: $BLE_MTU bytes (Long Write for larger data)');
 
           _connectedDevice = device;
           _lastDeviceId = deviceId; // Store device ID for auto-reconnection
@@ -891,38 +760,36 @@ class BleService {
         print('WiFi config notification enabled');
         print('*** Listener should now be active and ready to receive data');
 
-        // May need to actively request status once
+        // Send WiFi configuration data using Long Write (server handles this perfectly)
         if (wifiConfigChar.properties.write) {
+          List<int> data = utf8.encode(jsonPayload);
+          print('WiFi config data length: ${data.length} bytes');
+          print('Using Long Write (server confirmed to handle this correctly)');
+          
           try {
-            List<int> data = utf8.encode(jsonPayload);
-            print('WiFi config data length: ${data.length} bytes');
-            
-            // Use allowLongWrite to handle long data
             await wifiConfigChar.write(
               data,
               allowLongWrite: true,
-              timeout: 5
+              timeout: 15  // Increased timeout to 15 seconds for server processing
             );
-            print('WiFi config request sent successfully');
+            print('Long Write completed successfully');
           } catch (e) {
-            print('Failed to send WiFi config request with long write: $e');
-            
-            // Try alternative approach: smart chunking with fixed size
-            try {
-              await _writeDataWithSmartChunking(wifiConfigChar, utf8.encode(jsonPayload));
-              print('WiFi config request sent successfully using smart chunking');
-            } catch (smartChunkError) {
-              print('Failed to send WiFi config request with smart chunking: $smartChunkError');
-              
-              // Final fallback: use traditional 20-byte chunks
-              try {
-                await _writeDataInChunks(wifiConfigChar, utf8.encode(jsonPayload));
-                print('WiFi config request sent successfully using traditional chunking');
-              } catch (chunkError) {
-                print('Failed to send WiFi config request with all methods: $chunkError');
-                print('WARNING: Send failed, but will continue listening for response (device might have received partial data)');
-                // Don't cancel listener immediately - device might still respond
-                // The timeout will handle completion if no response comes
+            if (e.toString().contains('Timed out')) {
+              print('Long Write timeout - but server logs show data is received correctly');
+              print('Continuing to listen for response (server may still be processing)');
+              // Don't throw error on timeout - server data shows it works
+            } else {
+              print('Long Write failed with non-timeout error: $e');
+              // For connection errors like GATT_ERROR, throw exception to trigger retry logic
+              if (e.toString().contains('FlutterBluePlusException') || 
+                  e.toString().contains('GATT_ERROR') || 
+                  e.toString().contains('android-code: 133')) {
+                print('Throwing exception to trigger retry logic');
+                subscription?.cancel();
+                timer?.cancel();
+                throw e; // Re-throw to trigger retry in configureWiFiWithReconnection
+              } else {
+                print('Continuing to listen anyway in case data was partially received');
               }
             }
           }
@@ -1014,10 +881,11 @@ class BleService {
   // Enhanced configureWiFi with auto-reconnection
   Future<String> configureWiFiWithReconnection(String ssid, String password, bool restore) async {
     const maxRetries = 3;
-    int retryCount = 0;
     
-    while (retryCount < maxRetries) {
+    for (int retryCount = 0; retryCount < maxRetries; retryCount++) {
       try {
+        print("[BLE] WiFi config attempt ${retryCount + 1}/$maxRetries");
+        
         // Check if we're connected
         if (!isConnected) {
           print("[BLE] Not connected, attempting to reconnect...");
@@ -1030,9 +898,9 @@ class BleService {
               if (retryCount == maxRetries - 1) {
                 return '{"error": "Failed to reconnect to device after $maxRetries attempts: $e"}';
               }
-              retryCount++;
+              // Wait before next retry
               await Future.delayed(const Duration(seconds: 2));
-              continue;
+              continue; // Go to next iteration of for loop
             }
           } else {
             return '{"error": "No device to reconnect to"}';
@@ -1043,30 +911,35 @@ class BleService {
         return await configureWiFi(ssid, password, restore);
         
       } catch (e) {
-        print("[BLE] configureWiFi error: $e");
+        print("[BLE] configureWiFi error on attempt ${retryCount + 1}: $e");
         
         // Check if this is a connection-related error
         if (e.toString().contains('device is not connected') || 
-            e.toString().contains('FlutterBluePlusException')) {
+            e.toString().contains('FlutterBluePlusException') ||
+            e.toString().contains('GATT_ERROR') ||
+            e.toString().contains('android-code: 133') ||
+            e.toString().contains('LINK_SUPERVISION_TIMEOUT')) {
           print("[BLE] Connection error detected, will retry...");
-          retryCount++;
           
-          if (retryCount < maxRetries) {
-                         // Force reconnection on next attempt
-             _connectedDevice = null;
-             _updateGlobalConnectionState(false, 'Retrying connection...');
-             await Future.delayed(const Duration(seconds: 1));
-             continue;
-          } else {
+          if (retryCount == maxRetries - 1) {
+            // This is the last attempt, return error
             return '{"error": "Failed to configure WiFi after $maxRetries attempts due to connection issues: $e"}';
+          } else {
+            // Force reconnection on next attempt
+            _connectedDevice = null;
+            _updateGlobalConnectionState(false, 'Retrying connection...');
+            await Future.delayed(const Duration(seconds: 1));
+            continue; // Go to next iteration of for loop
           }
         } else {
           // Non-connection error, don't retry
+          print("[BLE] Non-connection error, not retrying: $e");
           return '{"error": "WiFi configuration failed: $e"}';
         }
       }
     }
     
+    // Should never reach here, but just in case
     return '{"error": "Failed to configure WiFi after $maxRetries attempts"}';
   }
 
@@ -1094,32 +967,7 @@ class BleService {
     _updateGlobalConnectionState(false, 'Disconnected');
   }
 
-  // Helper method to write data in chunks
-  Future<void> _writeDataInChunks(BluetoothCharacteristic characteristic, List<int> data) async {
-    const int chunkSize = 20; // Safe chunk size for BLE
-    int offset = 0;
-    
-    while (offset < data.length) {
-      int end = (offset + chunkSize < data.length) ? offset + chunkSize : data.length;
-      List<int> chunk = data.sublist(offset, end);
-      
-      print('Sending chunk ${offset ~/ chunkSize + 1}/${(data.length / chunkSize).ceil()}: ${chunk.length} bytes');
-      
-      // Use writeWithoutResponse for chunked data to avoid blocking
-      await characteristic.write(
-        chunk,
-        withoutResponse: offset + chunkSize < data.length, // Use withoutResponse for all chunks except the last one
-        timeout: 5
-      );
-      
-      offset += chunkSize;
-      
-      // Small delay between chunks to avoid overwhelming the device
-      if (offset < data.length) {
-        await Future.delayed(const Duration(milliseconds: 50));
-      }
-    }
-  }
+
 
   // Decrypt IP address from encrypted bytes
   String _decryptIpAddress(List<int> encryptedData) {
@@ -1161,53 +1009,7 @@ class BleService {
     }
   }
 
-  // Smart chunking with fixed chunk size
-  Future<void> _writeDataWithSmartChunking(BluetoothCharacteristic characteristic, List<int> data) async {
-    final chunkSize = 20; // Fixed safe chunk size for BLE
-    print('Using fixed chunking with size: $chunkSize bytes');
-    
-    int offset = 0;
-    int chunkIndex = 0;
-    
-    while (offset < data.length) {
-      int end = (offset + chunkSize < data.length) ? offset + chunkSize : data.length;
-      List<int> chunk = data.sublist(offset, end);
-      chunkIndex++;
-      
-      print('Sending smart chunk $chunkIndex/${(data.length / chunkSize).ceil()}: ${chunk.length} bytes');
-      
-      try {
-        if (offset + chunkSize < data.length) {
-          // Use writeWithoutResponse for intermediate chunks for better throughput
-          await characteristic.write(
-            chunk,
-            withoutResponse: true,
-            timeout: 5
-          );
-          // Shorter delay for writeWithoutResponse
-          await Future.delayed(const Duration(milliseconds: 20));
-        } else {
-          // Use write with response for the last chunk to ensure delivery
-          await characteristic.write(
-            chunk,
-            withoutResponse: false,
-            timeout: 5
-          );
-        }
-      } catch (e) {
-        print('Smart chunk $chunkIndex failed: $e');
-        // Fallback to smaller chunks if current chunk fails
-        if (chunk.length > 20) {
-          print('Falling back to safe 20-byte chunks');
-          await _writeDataInChunks(characteristic, data.sublist(offset));
-          return;
-        }
-        throw e;
-      }
-      
-      offset += chunkSize;
-    }
-  }
+
 
   // Dispose
   void dispose() {

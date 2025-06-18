@@ -1,8 +1,10 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:wifi_scan/wifi_scan.dart';
 
 import '../models/wifi_network.dart';
@@ -23,6 +25,7 @@ class _ProvisionScreenState extends State<ProvisionScreen> {
   StreamSubscription<bool>? _connectionSubscription;
   bool _isConnected = false; // Initially not connected
   String _deviceName = '';
+  bool _suppressConnectionLostMessages = false; // Flag to suppress connection lost messages during provision
 
   @override
   void dispose() {
@@ -84,8 +87,8 @@ class _ProvisionScreenState extends State<ProvisionScreen> {
       });
       
       if (!isConnected) {
-        // Show connection lost message only if we were previously connected
-        if (mounted) {
+        // Only show connection lost message if not suppressed (i.e., not during provision process)
+        if (mounted && !_suppressConnectionLostMessages) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Row(
@@ -101,8 +104,8 @@ class _ProvisionScreenState extends State<ProvisionScreen> {
           );
         }
       } else {
-        // Show reconnection success message
-        if (mounted) {
+        // Only show reconnection success message if not suppressed
+        if (mounted && !_suppressConnectionLostMessages) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Row(
@@ -122,7 +125,7 @@ class _ProvisionScreenState extends State<ProvisionScreen> {
     
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _showLoadingDialog('Scanning WiFi list...');
-      _startWiFiScan();
+      _scanForWiFiNetworks();
     });
   }
 
@@ -133,16 +136,34 @@ class _ProvisionScreenState extends State<ProvisionScreen> {
     });
   }
 
-  Future<void> _startWiFiScan() async {
+  Future<bool> _requestWiFiScanPermissions() async {
+    try {
+      final status = await Permission.location.request();
+      if (status.isGranted) {
+        return true;
+      } else if (status.isPermanentlyDenied) {
+        throw Exception('Location permission permanently denied. Please enable it in App Settings.');
+      } else {
+        throw Exception('Location permission required for WiFi scanning');
+      }
+    } catch (e) {
+      print('WiFi permission error: $e');
+      rethrow;
+    }
+  }
+
+  Future<void> _scanForWiFiNetworks() async {
     setState(() {
       _isLoading = true;
       _wifiNetworks = [];
     });
     try {
-      final status = await Permission.location.request();
-      if (!status.isGranted) {
-        throw Exception('Location permission denied');
+      // Request WiFi scanning permissions with detailed feedback
+      bool permissionGranted = await _requestWiFiScanPermissions();
+      if (!permissionGranted) {
+        throw Exception('Failed to obtain WiFi scanning permissions');
       }
+
       final canScan = await WiFiScan.instance.canStartScan();
       if (canScan != CanStartScan.yes) {
         throw Exception('Cannot start WiFi scan: $canScan');
@@ -165,11 +186,39 @@ class _ProvisionScreenState extends State<ProvisionScreen> {
             .toList();
         _wifiNetworks.sort((a, b) => b.signalStrength.compareTo(a.signalStrength));
       });
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to scan for WiFi networks: $e'), backgroundColor: Colors.red),
-      );
-    } finally {
+          } catch (e) {
+        print('WiFi scan error: $e');
+        
+        // Show user-friendly error message with action button
+        if (e.toString().contains('permanently denied') || e.toString().contains('enable it in App Settings')) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('WiFi scanning permission required'),
+              backgroundColor: Colors.orange,
+              action: SnackBarAction(
+                label: 'Open Settings',
+                textColor: Colors.white,
+                onPressed: () async {
+                  await openAppSettings();
+                },
+              ),
+              duration: Duration(seconds: 10),
+            ),
+          );
+        } else if (e.toString().contains('Location services must be enabled')) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Please enable Location services in device Settings'),
+              backgroundColor: Colors.orange,
+              duration: Duration(seconds: 8),
+            ),
+          );
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Failed to scan WiFi: $e'), backgroundColor: Colors.red),
+          );
+        }
+      } finally {
       setState(() { _isLoading = false; });
       _closeDialogIfOpen(); // Close the WiFi scan dialog
     }
@@ -180,6 +229,7 @@ class _ProvisionScreenState extends State<ProvisionScreen> {
     
     setState(() {
       _isLoading = true;
+      _suppressConnectionLostMessages = true; // Suppress connection messages during provision
     });
     
     const maxRetries = 3;
@@ -316,6 +366,12 @@ class _ProvisionScreenState extends State<ProvisionScreen> {
         );
         
         await Future.delayed(const Duration(seconds: 1));
+        
+        // Re-enable connection messages before successful exit
+        setState(() {
+          _suppressConnectionLostMessages = false;
+        });
+        
         if (mounted) {
           Navigator.of(context).pushNamedAndRemoveUntil('/', (route) => false);
         }
@@ -400,6 +456,7 @@ class _ProvisionScreenState extends State<ProvisionScreen> {
     
     setState(() {
       _isLoading = false;
+      _suppressConnectionLostMessages = false; // Re-enable connection messages after provision
     });
   }
   
@@ -476,7 +533,7 @@ class _ProvisionScreenState extends State<ProvisionScreen> {
                             ),
                             IconButton(
                               icon: const Icon(Icons.refresh),
-                              onPressed: _startWiFiScan,
+                              onPressed: _scanForWiFiNetworks,
                               tooltip: 'Scan for WiFi networks',
                             ),
                           ],
