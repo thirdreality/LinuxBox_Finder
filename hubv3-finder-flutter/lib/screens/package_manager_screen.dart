@@ -125,15 +125,101 @@ class _PackageManagerScreenState extends State<PackageManagerScreen> {
     }
   }
 
-  Future<void> _sendSettingCommand(String action) async {
+  Future<void> _sendSettingCommand(String action, {String file = ""}) async {
     try {
-      await HttpService().sendSettingCommand('setting', action: action);
+      await HttpService().sendSettingCommand('setting', action: action, file: file);
       _progressNotifier.value = 0;
       _messageNotifier.value = "Processing setting command...";
       _trackTaskProgress('setting');
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Failed to send command: $e')),
+      );
+    }
+  }
+
+  Future<void> _handleRestore() async {
+    try {
+      final response = await HttpService().getSettingInfo();
+      final data = jsonDecode(response);
+      final List<dynamic> backups = data['backups'] ?? [];
+      
+      if (backups.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('No backup files available')),
+        );
+        return;
+      }
+      
+      if (backups.length == 1) {
+        _sendSettingCommand('restore', file: backups[0].toString());
+        return;
+      }
+      
+      // Show backup selection dialog
+      showDialog(
+        context: context,
+        builder: (BuildContext context) {
+          return AlertDialog(
+            title: const Text(
+              'Select backups:',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+            titlePadding: const EdgeInsets.fromLTRB(24.0, 24.0, 24.0, 16.0),
+            contentPadding: const EdgeInsets.fromLTRB(24.0, 0, 24.0, 0),
+            content: SizedBox(
+              width: double.maxFinite,
+              height: (backups.length * 48.0 + (backups.length + 1) * 16.0).clamp(120.0, 400.0),
+              child: Column(
+                children: [
+                  const Divider(),
+                  Expanded(
+                    child: ListView.separated(
+                      itemCount: backups.length,
+                      separatorBuilder: (context, index) => const Divider(),
+                      itemBuilder: (context, index) {
+                        final backup = backups[index].toString();
+                        return SizedBox(
+                          height: 48.0,
+                          child: ListTile(
+                            leading: const Icon(Icons.backup, color: Colors.blue, size: 20),
+                            title: Text(
+                              backup,
+                              style: const TextStyle(fontSize: 14),
+                            ),
+                            contentPadding: const EdgeInsets.symmetric(horizontal: 0, vertical: 0),
+                            dense: false,
+                            onTap: () {
+                              Navigator.of(context).pop();
+                              _sendSettingCommand('restore', file: backup);
+                            },
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                  const Divider(),
+                ],
+              ),
+            ),
+            actions: [
+              ElevatedButton(
+                onPressed: () {
+                  Navigator.of(context).pop();
+                },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.grey[300],
+                  foregroundColor: Colors.black87,
+                ),
+                child: const Text('Cancel'),
+              ),
+            ],
+          );
+        },
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to get backup info: $e')),
       );
     }
   }
@@ -247,7 +333,7 @@ class _PackageManagerScreenState extends State<PackageManagerScreen> {
             trailing: IconButton(
               icon: const Icon(Icons.arrow_forward_ios),
               onPressed: () {
-                _sendSettingCommand('restore');
+                _handleRestore();
               },
             ),
           ),

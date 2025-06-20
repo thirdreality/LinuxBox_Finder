@@ -607,8 +607,37 @@ class HttpService {
   }
 
 
+  // Get Setting Info
+  Future<String> getSettingInfo() async {
+    if (_baseUrl == null) {
+      throw Exception('HTTP Service not configured with a device IP');
+    }
+
+    try {
+      // Add timestamp to prevent caching
+      final timestamp = DateTime.now().millisecondsSinceEpoch;
+      final response = await http.get(
+        Uri.parse('$_baseUrl/api/setting/info?_t=$timestamp'),
+        headers: {
+          'Cache-Control': 'no-cache',
+          'Pragma': 'no-cache',
+        },
+      ).timeout(const Duration(seconds: 10));
+
+      if (response.statusCode == 200) {
+        print('Setting info response: ${response.body}');
+        return response.body;
+      } else {
+        throw Exception('Failed to get setting info: ${response.statusCode}');
+      }
+    } catch (e) {
+      print('Error getting setting info: $e');
+      throw Exception('Error getting setting info: $e');
+    }
+  }
+
   // Send Setting Command
-  Future<String> sendSettingCommand(String command, {String action = ""}) async {
+  Future<String> sendSettingCommand(String command, {String action = "", String file = ""}) async {
     if (_baseUrl == null) {
       throw Exception('HTTP Service not configured with a device IP');
     }
@@ -617,9 +646,18 @@ class HttpService {
       // 1. Construct parameter map
       Map<String, String> paramMap = {};
       paramMap['command'] = command;
-      if (action.isNotEmpty) {
-        paramMap['action'] = action;
+      
+      // Create param JSON string based on action and file
+      Map<String, dynamic> paramJson = {'action': action};
+      if (file.isNotEmpty) {
+        paramJson['file'] = file;
       }
+      
+      final paramJsonString = jsonEncode(paramJson);
+      print('sending Setting param: $paramJsonString');
+      final paramBase64 = base64Encode(utf8.encode(paramJsonString));
+      paramMap['param'] = paramBase64;
+      
       int tvalue = DateTime.now().millisecondsSinceEpoch;
       paramMap['_ct'] = tvalue.toString();
 
@@ -637,7 +675,7 @@ class HttpService {
       paramMap['_sig'] = sig;
 
       // 4. Build body string in specific order
-      List<String> orderedKeys = ['command', 'action', '_ct', '_sig'];
+      List<String> orderedKeys = ['command', 'param', '_ct', '_sig'];
       var bodyParts = <String>[];
       for (var k in orderedKeys) {
         if (paramMap.containsKey(k)) {

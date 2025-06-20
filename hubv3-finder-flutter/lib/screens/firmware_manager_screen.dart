@@ -50,7 +50,7 @@ class _FirmwareManagerScreenState extends State<FirmwareManagerScreen> {
           'update_available': true,
           'release_date': '2025-04-15',
           'release_notes': 'Bug fixes and performance improvements:\n- Fixed WiFi connection stability issues\n- Improved BLE scanning performance\n- Added support for new device types',
-          'device_model': 'LinuxBox Hub v3',
+          'device_model': 'LinuxBox Dev Edition',
           'build_number': '20250415-1234'
         };
       });
