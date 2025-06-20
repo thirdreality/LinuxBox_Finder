@@ -28,8 +28,8 @@ class _ProvisionScreenState extends State<ProvisionScreen> {
   @override
   void dispose() {
     print('[Provision] ProvisionScreen being disposed - navigation may have occurred');
-    print('[Provision] Stack trace for dispose:');
-    print(StackTrace.current);
+    //print('[Provision] Stack trace for dispose:');
+    //print(StackTrace.current);
     // Disconnect BLE when leaving the page
     BleService().disconnect();
     super.dispose();
@@ -568,7 +568,26 @@ class _ProvisionScreenState extends State<ProvisionScreen> {
                             style: Theme.of(context).textTheme.titleLarge,
                           ),
                           const Divider(),
-                          const Text('Input the correct password:'),
+                          RichText(
+                            text: TextSpan(
+                              style: const TextStyle(
+                                color: Colors.black87,
+                                fontSize: 14,
+                                fontWeight: FontWeight.normal,
+                              ),
+                              children: [
+                                const TextSpan(text: 'Input the '),
+                                                                  const TextSpan(
+                                    text: 'correct password',
+                                    style: TextStyle(
+                                      color: Colors.blue,
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 14,
+                                    ),
+                                  ),
+                              ],
+                            ),
+                          ),
                           TextFormField(
                             controller: _passwordController,
                             decoration: InputDecoration(

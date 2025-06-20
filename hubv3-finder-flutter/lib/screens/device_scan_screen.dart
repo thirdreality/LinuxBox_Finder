@@ -23,6 +23,8 @@ class _DeviceScanScreenState extends State<DeviceScanScreen> {
   @override
   void initState() {
     super.initState();
+    // Clear devices list on page initialization
+    _devices = [];
     _initializeBle();
   }
 
@@ -52,6 +54,7 @@ class _DeviceScanScreenState extends State<DeviceScanScreen> {
     if (mounted) {
       setState(() {
         _isScanning = true;
+        _devices = []; // Clear existing devices before starting new scan
       });
     }
     
