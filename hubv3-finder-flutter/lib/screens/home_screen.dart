@@ -266,8 +266,8 @@ class _HomeScreenState extends State<HomeScreen> {
                               Expanded(
                                 child: Text(
                                   _wifiStatus!.isConnected
-                                      ? _wifiStatus!.statusMessage
-                                      : 'Offline',
+                                      ? 'Available'
+                                      : 'Unavailable',
                                   style: TextStyle(
                                     fontSize: 14,
                                     color: _wifiStatus!.isConnected

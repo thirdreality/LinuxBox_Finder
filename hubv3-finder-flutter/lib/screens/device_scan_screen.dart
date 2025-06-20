@@ -238,9 +238,12 @@ class _DeviceScanScreenState extends State<DeviceScanScreen> {
     
     // If provision was successful, result should contain device info
     if (result != null && result is Map<String, dynamic>) {
+      print('[DeviceScan] Provision returned result, navigating to home page');
       if (mounted) {
         Navigator.of(context).pushNamedAndRemoveUntil('/', (route) => false);
       }
+    } else {
+      print('[DeviceScan] Provision returned null or invalid result, staying on scan page');
     }
   }
 

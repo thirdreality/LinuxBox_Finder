@@ -6,40 +6,16 @@ import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 import '../models/ble_device.dart';
-import './http_service.dart';
-import '../models/WiFiConnectionStatus.dart';
 
 class BleService {
 
-
   // Public getter for discovered devices
   List<BleDevice> get discoveredDevices => _discoveredDevices;
-  /// Get WiFi status, automatically switch HTTP/BLE mode, return WiFiConnectionStatus
-  Future<WiFiConnectionStatus> getWiFiStatus() async {
-    try {
-      String statusJson;
-      if (_useHttpMode) {
-        // HTTP mode, get via REST API first
-        statusJson = await _httpService.getWifiStatus();
-      } else {
-        // BLE mode, get via BLE characteristic with reconnection
-        statusJson = await configureWiFiWithReconnection('', '', false); // Read-only status
-      }
-      return WiFiConnectionStatus.fromJson(statusJson);
-    } catch (e) {
-      return WiFiConnectionStatus.error('Failed to get WiFi status: $e');
-    }
-  }
+  
   // Singleton instance
   static final BleService _instance = BleService._internal();
   factory BleService() => _instance;
   BleService._internal();
-
-  // HTTP Service instance
-  final HttpService _httpService = HttpService();
-
-  // Communication mode flags
-  bool _useHttpMode = false;
 
   // BLE instance - updated for new API
   // No need for .instance anymore, directly use the class methods
@@ -242,7 +218,7 @@ class BleService {
   }
 
   // Connect to device with enhanced retry logic
-  Future<BluetoothDevice?> connectToDevice(String deviceId, {bool enableHttp = true}) async {
+  Future<BluetoothDevice?> connectToDevice(String deviceId) async {
     try {
       // Print _discoveredDevices for debugging
       print('_discoveredDevices dump:');
@@ -286,37 +262,6 @@ class BleService {
         throw Exception('Device not found: $deviceId');
       }
       
-      // Check if device has IP address
-      if (selectedDevice.ipAddress != null && selectedDevice.ipAddress!.isNotEmpty && enableHttp) {
-        final ip = selectedDevice.ipAddress!;
-        if (ip == '0.0.0.0' || ip.isEmpty) {
-          print('Device IP address is 0.0.0.0 or empty, skip HTTP connection and use BLE mode directly');
-          _useHttpMode = false;
-        } else {
-          print('Device has IP address: $ip, trying HTTP connection...');
-          // Configure HTTP service
-          _httpService.configure(ip);
-          // Check HTTP connection
-          bool httpConnected = await _httpService.checkConnectivity();
-          if (httpConnected) {
-            print('HTTP connection successful, will use HTTP mode');
-            _useHttpMode = true;
-            // In HTTP mode, we still store the original BLE device reference, but mainly use HTTP service
-            _connectedDevice = selectedDevice.device;
-            _updateGlobalConnectionState(true, 'Connected via HTTP');
-            return selectedDevice.device;
-          } else {
-            print('HTTP connection failed, will use BLE mode');
-            _useHttpMode = false;
-            _httpService.clear();
-          }
-        }
-      } else {
-        print('Device has no IP address, will use BLE mode');
-        _useHttpMode = false;
-      }
-      
-      // If HTTP connection fails or device has no IP address, use BLE connection
       BluetoothDevice? device = selectedDevice.device;
 
       if (device == null) {
@@ -575,11 +520,6 @@ class BleService {
   Future<String> configureWiFi(String ssid, String password, bool restore) async {
     String defaultResult = '{"connected":false, "ip_address":""}';
     try {
-      // Check if HTTP mode is used
-      if (_useHttpMode) {
-        return defaultResult;
-      }
-
       print('Configuring WiFi using BLE mode');
 
       if (_connectedDevice == null) {
@@ -784,10 +724,10 @@ class BleService {
               if (e.toString().contains('FlutterBluePlusException') || 
                   e.toString().contains('GATT_ERROR') || 
                   e.toString().contains('android-code: 133')) {
-                print('Throwing exception to trigger retry logic');
+                print('Throwing exception for connection error handling');
                 subscription?.cancel();
                 timer?.cancel();
-                throw e; // Re-throw to trigger retry in configureWiFiWithReconnection
+                throw e; // Re-throw for error handling
               } else {
                 print('Continuing to listen anyway in case data was partially received');
               }
@@ -820,28 +760,8 @@ class BleService {
     }
   }
 
-
-  // Send command
-  Future<String> sendCommand(String command) async {
-    try {
-      // Check if HTTP mode is used
-      if (_useHttpMode) {
-        print('Send command using HTTP mode');
-        return await _httpService.sendCommand(command);
-      }
-
-      throw Exception('Not connected to any device');
-    } catch (e) {
-      print('Failed to send command: $e');
-      return 'Error: $e';
-    }
-  }
-
   // Check if device is currently connected
   bool get isConnected {
-    if (_useHttpMode) {
-      return true; // In HTTP mode, assume connected if HTTP service is configured
-    }
     // Check both internal state and actual device connection state
     return _connectedDevice != null && _connectedDevice!.isConnected;
   }
@@ -862,7 +782,7 @@ class BleService {
         await Future.delayed(reconnectDelay);
         
         // Try to reconnect
-        await connectToDevice(_lastDeviceId!, enableHttp: false);
+        await connectToDevice(_lastDeviceId!);
         print("[BLE] Auto-reconnection successful on attempt $attempt");
         break;
         
@@ -878,81 +798,12 @@ class BleService {
     }
   }
 
-  // Enhanced configureWiFi with auto-reconnection
-  Future<String> configureWiFiWithReconnection(String ssid, String password, bool restore) async {
-    const maxRetries = 3;
-    
-    for (int retryCount = 0; retryCount < maxRetries; retryCount++) {
-      try {
-        print("[BLE] WiFi config attempt ${retryCount + 1}/$maxRetries");
-        
-        // Check if we're connected
-        if (!isConnected) {
-          print("[BLE] Not connected, attempting to reconnect...");
-          if (_lastDeviceId != null) {
-            try {
-              await connectToDevice(_lastDeviceId!, enableHttp: false);
-              print("[BLE] Reconnection successful");
-            } catch (e) {
-              print("[BLE] Reconnection failed: $e");
-              if (retryCount == maxRetries - 1) {
-                return '{"error": "Failed to reconnect to device after $maxRetries attempts: $e"}';
-              }
-              // Wait before next retry
-              await Future.delayed(const Duration(seconds: 2));
-              continue; // Go to next iteration of for loop
-            }
-          } else {
-            return '{"error": "No device to reconnect to"}';
-          }
-        }
-        
-        // Now try to configure WiFi
-        return await configureWiFi(ssid, password, restore);
-        
-      } catch (e) {
-        print("[BLE] configureWiFi error on attempt ${retryCount + 1}: $e");
-        
-        // Check if this is a connection-related error
-        if (e.toString().contains('device is not connected') || 
-            e.toString().contains('FlutterBluePlusException') ||
-            e.toString().contains('GATT_ERROR') ||
-            e.toString().contains('android-code: 133') ||
-            e.toString().contains('LINK_SUPERVISION_TIMEOUT')) {
-          print("[BLE] Connection error detected, will retry...");
-          
-          if (retryCount == maxRetries - 1) {
-            // This is the last attempt, return error
-            return '{"error": "Failed to configure WiFi after $maxRetries attempts due to connection issues: $e"}';
-          } else {
-            // Force reconnection on next attempt
-            _connectedDevice = null;
-            _updateGlobalConnectionState(false, 'Retrying connection...');
-            await Future.delayed(const Duration(seconds: 1));
-            continue; // Go to next iteration of for loop
-          }
-        } else {
-          // Non-connection error, don't retry
-          print("[BLE] Non-connection error, not retrying: $e");
-          return '{"error": "WiFi configuration failed: $e"}';
-        }
-      }
-    }
-    
-    // Should never reach here, but just in case
-    return '{"error": "Failed to configure WiFi after $maxRetries attempts"}';
-  }
-
   // Disconnect from device
   Future<void> disconnect() async {
     // Clear auto-reconnection
     _isReconnecting = false;
     _lastDeviceId = null;
     _connectionSubscription?.cancel();
-    
-    // Clear HTTP mode
-    _useHttpMode = false;
-    _httpService.clear();
     
     if (_connectedDevice != null) {
       try {
@@ -966,8 +817,6 @@ class BleService {
     
     _updateGlobalConnectionState(false, 'Disconnected');
   }
-
-
 
   // Decrypt IP address from encrypted bytes
   String _decryptIpAddress(List<int> encryptedData) {
@@ -1008,8 +857,6 @@ class BleService {
       return '0.0.0.0';
     }
   }
-
-
 
   // Dispose
   void dispose() {
