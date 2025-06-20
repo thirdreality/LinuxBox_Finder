@@ -28,13 +28,15 @@ This project consists of two main components:
 ---
 
 <p align="center">
-  <img src="/data/image2025-4-8_16-8-32.png" width="240" title="hover text">
-  <img src="/data/image2025-4-8_16-9-0.png" width="240" title="hover text">
-  <img src="/data/image2025-4-8_16-9-23.png" width="240" title="hover text">
-  <img src="/data/image2025-4-8_16-9-44.png" width="240" title="hover text">
-  <img src="/data/image2025-4-8_16-10-15.png" width="240" title="hover text">
+  <img src="https://github.com/user-attachments/assets/88d93915-8885-4980-836d-35dd8c82d372" width="30%" alt="image">
+  <img src="https://github.com/user-attachments/assets/9f7a17bc-4b78-44c3-89bd-5ce4ee20d5c8" width="30%" alt="image">
+  <img src="https://github.com/user-attachments/assets/ccece159-140b-46fa-ba64-6a583fc79bc5" width="30%" alt="image">
+  <img src="https://github.com/user-attachments/assets/fbbdd42c-2d66-4a17-9cd7-b2c8d1fa3257" width="30%" alt="image">
+  <img src="https://github.com/user-attachments/assets/d287978f-6247-4a9b-bfac-846d905259da" width="30%" alt="image">
+  <img src="https://github.com/user-attachments/assets/d82b8475-c953-4286-b11c-c2985650efc5" width="30%" alt="image">
+  <img src="https://github.com/user-attachments/assets/9cbc628b-efff-49a0-a47a-515308127832" width="30%" alt="image">
+  <img src="https://github.com/user-attachments/assets/d0105372-9ff2-4afb-a332-6f1438e1fb18" width="30%" alt="image">
 </p>
-
 
 
 
