@@ -282,15 +282,15 @@ class _ProvisionScreenState extends State<ProvisionScreen> {
           }
 
           // Handle success/failure response
-          if (json.containsKey('connected')) {
-            if (json['connected'] == true && json['ip_address'] != null && json['ip_address'].toString().isNotEmpty) {
+          if (json.containsKey('status')) {
+            if (json['status'] == true && json['ip'] != null && json['ip'].toString().isNotEmpty) {
               // Success case
               print('[Provision] WiFi configuration successful');
               await bleService.disconnect();
               
               // Save device information
               final prefs = await SharedPreferences.getInstance();
-              await prefs.setString('selected_device_ip', json['ip_address']);
+              await prefs.setString('selected_device_ip', json['ip']);
               await prefs.setString('selected_device_id', widget.deviceId);
               if (_selectedSSID != null && _selectedSSID!.isNotEmpty) {
                 await prefs.setString('selected_ssid', _selectedSSID!);
@@ -301,7 +301,7 @@ class _ProvisionScreenState extends State<ProvisionScreen> {
               
               // Call success callback
               if (widget.onProvisionSuccess != null) {
-                widget.onProvisionSuccess!(json['ip_address']);
+                widget.onProvisionSuccess!(json['ip']);
               }
               
               _forceCloseDialog();
@@ -325,9 +325,8 @@ class _ProvisionScreenState extends State<ProvisionScreen> {
               }
               return;
             } else {
-              // Failure case - connected: false
-              print('[Provision] Configuration failed - connected: false, staying on current page');
-              // Only disconnect if BLE is actually connected
+              // Failure case - status: false
+              print('[Provision] Configuration failed - status: false, staying on current page');
               if (bleService.isConnected) {
                 bleService.disconnect();
               }

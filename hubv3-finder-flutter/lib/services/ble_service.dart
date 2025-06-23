@@ -519,7 +519,7 @@ class BleService {
 
   // Configure WiFi
   Future<String> configureWiFi(String ssid, String password, bool restore) async {
-    String defaultResult = '{"connected":false, "ip_address":""}';
+    String defaultResult = '{"status":"","ip":""}';
     try {
       print('Configuring WiFi using BLE mode');
 
@@ -543,7 +543,7 @@ class BleService {
       // Prepare the JSON payload
       Map<String, dynamic> payload = {
         'ssid': ssid,
-        'password': password
+        'psk': password
       };
 
       String jsonPayload = jsonEncode(payload);
