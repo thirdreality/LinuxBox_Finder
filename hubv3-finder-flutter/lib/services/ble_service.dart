@@ -134,6 +134,7 @@ class BleService {
           }
 
           print('[1]find deviceName $deviceName');
+          print('[1]find serviceUuids: ${result.advertisementData.serviceUuids.map((uuid) => uuid.toString().toLowerCase()).toList()}');
 
           if (deviceName.contains('3RHUB-') ||
               result.advertisementData.serviceUuids.map((uuid) => uuid.toString().toLowerCase()).contains(SERVICE_UUID.toLowerCase())) {
