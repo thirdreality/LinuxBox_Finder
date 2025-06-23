@@ -32,6 +32,7 @@ This project consists of two main components:
   <img src="https://github.com/user-attachments/assets/9f7a17bc-4b78-44c3-89bd-5ce4ee20d5c8" width="30%" alt="image">
   <img src="https://github.com/user-attachments/assets/ccece159-140b-46fa-ba64-6a583fc79bc5" width="30%" alt="image">
   <img src="https://github.com/user-attachments/assets/fbbdd42c-2d66-4a17-9cd7-b2c8d1fa3257" width="30%" alt="image">
+  <img src="https://github.com/user-attachments/assets/a325b871-1a4f-428c-ac84-2c4b1b8ad0d7" width="30%" alt="image">
   <img src="https://github.com/user-attachments/assets/d287978f-6247-4a9b-bfac-846d905259da" width="30%" alt="image">
   <img src="https://github.com/user-attachments/assets/d82b8475-c953-4286-b11c-c2985650efc5" width="30%" alt="image">
   <img src="https://github.com/user-attachments/assets/9cbc628b-efff-49a0-a47a-515308127832" width="30%" alt="image">
