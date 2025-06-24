@@ -270,9 +270,9 @@ class _ProvisionScreenState extends State<ProvisionScreen> {
 
           final Map<String, dynamic> json = result is String ? Map<String, dynamic>.from(jsonDecode(result)) : {};
 
-          // Handle error response
-          if (json.containsKey('error')) {
-            errorMessage = json['error'];
+          // Handle error response - support both 'err' and 'error' fields for backward compatibility
+          if (json.containsKey('err') || json.containsKey('error')) {
+            String errorMessage = json['err'] ?? json['error'] ?? 'Unknown error';
             print('[Provision] Configuration returned error: $errorMessage');
             // Only disconnect if BLE is actually connected
             if (bleService.isConnected) {
@@ -281,11 +281,66 @@ class _ProvisionScreenState extends State<ProvisionScreen> {
             break; // Exit retry loop for configuration errors
           }
 
-          // Handle success/failure response
+          // Handle new response format: {"ip":"%s"}
+          if (json.containsKey('ip')) {
+            String ipAddress = json['ip'] ?? '';
+            if (ipAddress.isNotEmpty) {
+              // Success case - device has IP address
+              print('[Provision] WiFi configuration successful, IP: $ipAddress');
+              await bleService.disconnect();
+              
+              // Save device information
+              final prefs = await SharedPreferences.getInstance();
+              await prefs.setString('selected_device_ip', ipAddress);
+              await prefs.setString('selected_device_id', widget.deviceId);
+              if (_selectedSSID != null && _selectedSSID!.isNotEmpty) {
+                await prefs.setString('selected_ssid', _selectedSSID!);
+              }
+              if (_deviceName.isNotEmpty) {
+                await prefs.setString('selected_device_name', _deviceName);
+              }
+              
+              // Call success callback
+              if (widget.onProvisionSuccess != null) {
+                widget.onProvisionSuccess!(ipAddress);
+              }
+              
+              _forceCloseDialog();
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('WiFi configuration successful! Returning to home page.'),
+                  backgroundColor: Colors.green,
+                ),
+              );
+              
+              // Clean up state before navigation to prevent any delayed callbacks
+              setState(() {
+                _isLoading = false;
+                _suppressConnectionLostMessages = false;
+              });
+              
+              // Navigate immediately without delay to prevent issues with disposed widget
+              if (mounted) {
+                print('[Provision] Navigating to home page after successful configuration');
+                Navigator.of(context).pushNamedAndRemoveUntil('/', (route) => false);
+              }
+              return;
+            } else {
+              // Failure case - empty IP address
+              print('[Provision] Configuration failed - empty IP address');
+              if (bleService.isConnected) {
+                bleService.disconnect();
+              }
+              errorMessage = 'WiFi configuration failed, please check your password and try again.';
+              break; // Exit retry loop for configuration failures
+            }
+          }
+
+          // Handle legacy response format for backward compatibility
           if (json.containsKey('status')) {
             if (json['status'] == true && json['ip'] != null && json['ip'].toString().isNotEmpty) {
               // Success case
-              print('[Provision] WiFi configuration successful');
+              print('[Provision] WiFi configuration successful (legacy format)');
               await bleService.disconnect();
               
               // Save device information

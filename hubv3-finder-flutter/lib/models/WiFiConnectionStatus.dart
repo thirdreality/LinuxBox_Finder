@@ -31,6 +31,24 @@ class WiFiConnectionStatus {
       // 使用标准JSON解析
       Map<String, dynamic> data = jsonDecode(jsonString);
 
+      // Handle new format: {"ip":"%s"}
+      if (data.containsKey('ip') && !data.containsKey('connected')) {
+        String ipAddress = data['ip'] ?? '';
+        return WiFiConnectionStatus(
+          isConnected: ipAddress.isNotEmpty,
+          ipAddress: ipAddress.isNotEmpty ? ipAddress : null,
+        );
+      }
+
+      // Handle error response format: {"err":"error message"}
+      if (data.containsKey('err')) {
+        return WiFiConnectionStatus(
+          isConnected: false,
+          errorMessage: data['err'],
+        );
+      }
+
+      // Handle legacy format with connected status
       return WiFiConnectionStatus(
         isConnected: data['connected'] ?? false,
         ssid: data['ssid'],

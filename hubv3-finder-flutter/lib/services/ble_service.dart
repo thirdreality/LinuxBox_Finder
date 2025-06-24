@@ -519,7 +519,7 @@ class BleService {
 
   // Configure WiFi
   Future<String> configureWiFi(String ssid, String password, bool restore) async {
-    String defaultResult = '{"status":"","ip":""}';
+    String defaultResult = '{"ip":""}';
     try {
       print('Configuring WiFi using BLE mode');
 
@@ -540,10 +540,10 @@ class BleService {
             (c) => c.uuid.toString().toLowerCase() == HUBV3_WIFI_CONFIG_CHAR_UUID.toLowerCase(),
       );
 
-      // Prepare the JSON payload
+      // Prepare the JSON payload with new format: 'pw' instead of 'psk'
       Map<String, dynamic> payload = {
         'ssid': ssid,
-        'psk': password
+        'pw': password
       };
 
       String jsonPayload = jsonEncode(payload);
@@ -565,7 +565,7 @@ class BleService {
         // Use different timeout based on whether we're receiving fragments
         Duration timeoutDuration = dataBuffer.isEmpty 
           ? const Duration(seconds: 60)  // Initial timeout
-          : const Duration(seconds: 30); // Fragment timeout (shorter)
+          : const Duration(seconds: 10); // Fragment timeout (shorter for faster response)
         
         timer = Timer(timeoutDuration, () {
           if (!completer.isCompleted) {
@@ -573,6 +573,19 @@ class BleService {
             if (dataBuffer.isNotEmpty) {
               print('Timeout during fragment reception. Received $fragmentCount fragments, ${dataBuffer.length} bytes total');
               print('Partial data: "${String.fromCharCodes(dataBuffer)}"');
+              
+              // Try to parse partial data as JSON if it looks complete
+              try {
+                String partialString = utf8.decode(dataBuffer).trim();
+                if (partialString.startsWith('{') && partialString.endsWith('}')) {
+                  final jsonData = jsonDecode(partialString);
+                  print('Partial data appears to be valid JSON: $jsonData');
+                  completer.complete(partialString);
+                  return;
+                }
+              } catch (e) {
+                print('Partial data is not valid JSON: $e');
+              }
             } else {
               print('Timeout waiting for initial response');
             }
@@ -609,13 +622,16 @@ class BleService {
         if (dataBuffer.isEmpty) {
           print('First fragment received, resetting timeout');
           startTimeout();
+        } else {
+          print('Additional fragment received, extending timeout');
+          startTimeout(); // Reset timeout for each fragment
         }
         
         // Add received data to buffer
         dataBuffer.addAll(value);
         print('Total buffered data: ${dataBuffer.length} bytes');
 
-        // Try to decode as string to check if we have a complete JSON
+        // Try to decode as string to check if we have a complete message
         String bufferedString;
         try {
           bufferedString = utf8.decode(dataBuffer);
@@ -626,61 +642,159 @@ class BleService {
         
         print('Current buffered string: "$bufferedString"');
 
-        // Check if we have a complete JSON by looking for matching braces
-        int openBraces = 0;
-        int closeBraces = 0;
-        bool hasValidStart = false;
-        bool hasValidEnd = false;
+        // Check for newline terminator (\n) to determine if message is complete
+        int newlineTerminatorIndex = bufferedString.indexOf('\n');
         
-        for (int i = 0; i < bufferedString.length; i++) {
-          if (bufferedString[i] == '{') {
-            openBraces++;
-            if (!hasValidStart) hasValidStart = true;
-          }
-          if (bufferedString[i] == '}') {
-            closeBraces++;
-            if (i == bufferedString.length - 1 || bufferedString.substring(i+1).trim().isEmpty) {
-              hasValidEnd = true;
-            }
-          }
-        }
-        
-        print('JSON completeness check - Open braces: $openBraces, Close braces: $closeBraces');
-        print('Valid start: $hasValidStart, Valid end: $hasValidEnd');
-        
-        // Check for complete JSON: must have matching braces, valid start and end
-        bool isCompleteJson = openBraces > 0 && openBraces == closeBraces && hasValidStart && hasValidEnd;
-        
-        if (isCompleteJson) {
-          print('Complete JSON detected, processing...');
-          // Clean up string, keep only JSON part
-          String resultString = _cleanJsonString(bufferedString);
-          print('Cleaned WiFi status string: "$resultString"');
+        if (newlineTerminatorIndex != -1) {
+          print('Newline terminator found at position $newlineTerminatorIndex');
+          // Extract the message up to the newline terminator
+          String completeMessage = bufferedString.substring(0, newlineTerminatorIndex);
+          print('Complete message (before newline terminator): "$completeMessage"');
 
-          // Validate JSON
+          // Try to parse as JSON
           try {
-            final jsonData = jsonDecode(resultString);
+            final jsonData = jsonDecode(completeMessage);
             print('WiFi status JSON valid: $jsonData');
-            print('Successfully reassembled $fragmentCount fragments into complete JSON');
+            print('Successfully reassembled $fragmentCount fragments into complete message');
             
-            // Cancel subscription and timer
+            // Check if it's an error response
+            if (jsonData.containsKey('err')) {
+              print('Error response received: ${jsonData['err']}');
+              subscription?.cancel();
+              timer?.cancel();
+              if (!completer.isCompleted) {
+                completer.complete(defaultResult);
+              }
+              return;
+            }
+            
+            // Check if it's a success response
+            if (jsonData.containsKey('ip')) {
+              print('Success response received with IP: ${jsonData['ip']}');
+              subscription?.cancel();
+              timer?.cancel();
+              if (!completer.isCompleted) {
+                print('Completing with result: $completeMessage');
+                completer.complete(completeMessage);
+              }
+              return;
+            }
+            
+            // Unknown response format
+            print('Unknown response format: $jsonData');
             subscription?.cancel();
             timer?.cancel();
-
-            // Complete Completer
             if (!completer.isCompleted) {
-              print('Completing with result: $resultString');
-              completer.complete(resultString);
+              completer.complete(defaultResult);
             }
           } catch (e) {
             print('WiFi status JSON invalid: $e');
-            print('Invalid JSON content: "$resultString"');
-            // If JSON is still invalid, wait for more data or timeout
-            return;
+            print('Invalid JSON content: "$completeMessage"');
+            // If JSON is invalid, return default result
+            subscription?.cancel();
+            timer?.cancel();
+            if (!completer.isCompleted) {
+              completer.complete(defaultResult);
+            }
           }
         } else {
-          print('Incomplete JSON, waiting for more data. Braces: open=$openBraces, close=$closeBraces');
-          print('Need more fragments to complete the message...');
+          // Check if we have a potentially complete JSON without newline terminator
+          // This handles cases where the newline terminator might be lost
+          if (bufferedString.trim().startsWith('{') && bufferedString.trim().endsWith('}')) {
+            print('Potential complete JSON found without newline terminator, attempting to parse...');
+            try {
+              final jsonData = jsonDecode(bufferedString.trim());
+              print('WiFi status JSON valid (without newline terminator): $jsonData');
+              print('Successfully reassembled $fragmentCount fragments into complete message');
+              
+              // Check if it's an error response
+              if (jsonData.containsKey('err')) {
+                print('Error response received: ${jsonData['err']}');
+                subscription?.cancel();
+                timer?.cancel();
+                if (!completer.isCompleted) {
+                  completer.complete(defaultResult);
+                }
+                return;
+              }
+              
+              // Check if it's a success response
+              if (jsonData.containsKey('ip')) {
+                print('Success response received with IP: ${jsonData['ip']}');
+                subscription?.cancel();
+                timer?.cancel();
+                if (!completer.isCompleted) {
+                  print('Completing with result: ${bufferedString.trim()}');
+                  completer.complete(bufferedString.trim());
+                }
+                return;
+              }
+              
+              // Unknown response format
+              print('Unknown response format: $jsonData');
+              subscription?.cancel();
+              timer?.cancel();
+              if (!completer.isCompleted) {
+                completer.complete(defaultResult);
+              }
+            } catch (e) {
+              print('JSON parsing failed even without newline terminator: $e');
+              print('Waiting for more data or newline terminator...');
+            }
+          } else {
+            // Check if we have a partial JSON that might be complete
+            // This handles cases where the response is short enough to fit in one fragment
+            String trimmedString = bufferedString.trim();
+            if (trimmedString.startsWith('{') && (trimmedString.contains('"ip"') || trimmedString.contains('"err"'))) {
+              print('Partial JSON with IP or error field found, checking if it might be complete...');
+              // Try to add missing closing brace if it looks like it's missing
+              if (!trimmedString.endsWith('}')) {
+                String potentialComplete = trimmedString + '}';
+                try {
+                  final jsonData = jsonDecode(potentialComplete);
+                  print('WiFi status JSON valid (with added closing brace): $jsonData');
+                  print('Successfully reassembled $fragmentCount fragments into complete message');
+                  
+                  // Check if it's an error response
+                  if (jsonData.containsKey('err')) {
+                    print('Error response received: ${jsonData['err']}');
+                    subscription?.cancel();
+                    timer?.cancel();
+                    if (!completer.isCompleted) {
+                      completer.complete(defaultResult);
+                    }
+                    return;
+                  }
+                  
+                  // Check if it's a success response
+                  if (jsonData.containsKey('ip')) {
+                    print('Success response received with IP: ${jsonData['ip']}');
+                    subscription?.cancel();
+                    timer?.cancel();
+                    if (!completer.isCompleted) {
+                      print('Completing with result: $potentialComplete');
+                      completer.complete(potentialComplete);
+                    }
+                    return;
+                  }
+                  
+                  // Unknown response format
+                  print('Unknown response format: $jsonData');
+                  subscription?.cancel();
+                  timer?.cancel();
+                  if (!completer.isCompleted) {
+                    completer.complete(defaultResult);
+                  }
+                } catch (e) {
+                  print('JSON parsing failed even with added closing brace: $e');
+                  print('Waiting for more data or newline terminator...');
+                }
+              }
+            } else {
+              print('No newline terminator found, waiting for more data...');
+              print('Need more fragments to complete the message...');
+            }
+          }
         }
       }, onError: (error) {
         print('WiFi config notification error: $error');
@@ -701,10 +815,12 @@ class BleService {
         print('WiFi config notification enabled');
         print('*** Listener should now be active and ready to receive data');
 
-        // Send WiFi configuration data using Long Write (server handles this perfectly)
+        // Send WiFi configuration data using Long Write with newline terminator
         if (wifiConfigChar.properties.write) {
-          List<int> data = utf8.encode(jsonPayload);
-          print('WiFi config data length: ${data.length} bytes');
+          // Add newline terminator to the JSON payload
+          String jsonPayloadWithNewline = jsonPayload + '\n';
+          List<int> data = utf8.encode(jsonPayloadWithNewline);
+          print('WiFi config data length: ${data.length} bytes (including newline terminator)');
           print('Using Long Write (server confirmed to handle this correctly)');
           
           try {
