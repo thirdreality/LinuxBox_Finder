@@ -270,15 +270,26 @@ class _ProvisionScreenState extends State<ProvisionScreen> {
 
           final Map<String, dynamic> json = result is String ? Map<String, dynamic>.from(jsonDecode(result)) : {};
 
-          // Handle error response - support both 'err' and 'error' fields for backward compatibility
+          // Handle error response - only retry on 'conn fail' or BLE 133 error
           if (json.containsKey('err') || json.containsKey('error')) {
-            String errorMessage = json['err'] ?? json['error'] ?? 'Unknown error';
-            print('[Provision] Configuration returned error: $errorMessage');
-            // Only disconnect if BLE is actually connected
-            if (bleService.isConnected) {
-              bleService.disconnect();
+            String err = json['err'] ?? json['error'] ?? 'Unknown error';
+            if (err == 'conn fail') {
+              // Only 'conn fail' is allowed to retry
+              connectionRetryCount++;
+              if (connectionRetryCount < maxRetries) {
+                _forceCloseDialog();
+                _showLoadingDialog('WiFi连接失败，正在重试...');
+                await Future.delayed(const Duration(seconds: 1));
+                continue;
+              } else {
+                errorMessage = 'WiFi连接失败: $err';
+                break;
+              }
+            } else {
+              // Other errors: do not retry, just show error
+              errorMessage = 'WiFi配置失败: $err';
+              break;
             }
-            break; // Exit retry loop for configuration errors
           }
 
           // Handle new response format: {"ip":"%s"}

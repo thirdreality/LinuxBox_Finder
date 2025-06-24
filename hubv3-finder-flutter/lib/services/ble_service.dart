@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'package:crypto/crypto.dart';
 
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
@@ -808,48 +809,45 @@ class BleService {
       // Enable indicate
       try {
         print('*** Attempting to enable notifications for characteristic');
-        print('*** Notify supported: ${wifiConfigChar.properties.notify}');
-        print('*** Indicate supported: ${wifiConfigChar.properties.indicate}');
+        print('*** Notify supported: [38;5;2m${wifiConfigChar.properties.notify}[0m');
+        print('*** Indicate supported: [38;5;2m${wifiConfigChar.properties.indicate}[0m');
         
         await wifiConfigChar.setNotifyValue(true);
         print('WiFi config notification enabled');
         print('*** Listener should now be active and ready to receive data');
 
-        // Send WiFi configuration data using Long Write with newline terminator
+        // Send WiFi configuration data using 20-byte chunks with platform-specific delay
         if (wifiConfigChar.properties.write) {
-          // Add newline terminator to the JSON payload
           String jsonPayloadWithNewline = jsonPayload + '\n';
           List<int> data = utf8.encode(jsonPayloadWithNewline);
-          print('WiFi config data length: ${data.length} bytes (including newline terminator)');
-          print('Using Long Write (server confirmed to handle this correctly)');
-          
-          try {
-            await wifiConfigChar.write(
-              data,
-              allowLongWrite: true,
-              timeout: 15  // Increased timeout to 15 seconds for server processing
-            );
-            print('Long Write completed successfully');
-          } catch (e) {
-            if (e.toString().contains('Timed out')) {
-              print('Long Write timeout - but server logs show data is received correctly');
-              print('Continuing to listen for response (server may still be processing)');
-              // Don't throw error on timeout - server data shows it works
+          print('WiFi config data length: [38;5;2m${data.length}[0m bytes (including newline terminator)');
+          print('Sending in 20-byte chunks (no long write)');
+
+          int maxSendLength = 20;
+          for (int i = 0; i < data.length; i += maxSendLength) {
+            List<int> chunk;
+            if (i + maxSendLength < data.length) {
+              chunk = data.getRange(i, i + maxSendLength).toList();
             } else {
-              print('Long Write failed with non-timeout error: $e');
-              // For connection errors like GATT_ERROR, throw exception to trigger retry logic
-              if (e.toString().contains('FlutterBluePlusException') || 
-                  e.toString().contains('GATT_ERROR') || 
-                  e.toString().contains('android-code: 133')) {
-                print('Throwing exception for connection error handling');
-                subscription?.cancel();
-                timer?.cancel();
-                throw e; // Re-throw for error handling
-              } else {
-                print('Continuing to listen anyway in case data was partially received');
-              }
+              chunk = data.getRange(i, data.length).toList();
+            }
+            print('Sending chunk [${i}..${i + chunk.length}]: ${chunk.map((e) => e.toRadixString(16)).toList()}');
+            await wifiConfigChar.write(
+              chunk,
+              withoutResponse: true,
+              allowLongWrite: false,
+              timeout: 5,
+            );
+            // Platform-specific delay
+            if (Platform.isAndroid) {
+              await Future.delayed(const Duration(milliseconds: 200));
+            } else if (Platform.isIOS) {
+              await Future.delayed(const Duration(milliseconds: 50));
+            } else {
+              await Future.delayed(const Duration(milliseconds: 100)); // fallback
             }
           }
+          print('All chunks sent.');
         }
 
         // Wait for notification result or timeout
