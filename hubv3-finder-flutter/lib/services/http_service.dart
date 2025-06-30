@@ -40,9 +40,10 @@ class HttpService {
       ).timeout(Duration(seconds: ltime));
 
       if (response.statusCode == 200) {
+        print('getWifiStatus result: ' + response.body);
         return response.body;
       } else {
-        throw Exception('Failed to get WiFi status: ${response.statusCode}');
+        throw Exception('Failed to get WiFi status: \\${response.statusCode}');
       }
     } catch (e) {
       print('Error getting WiFi status: $e');
@@ -66,9 +67,10 @@ class HttpService {
       ).timeout(const Duration(seconds: 10));
 
       if (response.statusCode == 200) {
+        print('prepareWifiProvision result: ' + response.body);
         return response.body;
       } else {
-        throw Exception('Failed to delete WiFi connections: ${response.statusCode}');
+        throw Exception('Failed to delete WiFi connections: \\${response.statusCode}');
       }
     } catch (e) {
       print('Error deleting WiFi networks: $e');
@@ -126,9 +128,10 @@ class HttpService {
       ).timeout(Duration(seconds: timeout));
 
       if (response.statusCode == 200) {
+        print('sendCommand result: ' + response.body);
         return response.body;
       } else {
-        throw Exception('Failed to send command: \\${response.statusCode}');
+        throw Exception('Failed to send command: \\\${response.statusCode}');
       }
     } catch (e) {
       print('Error sending command: $e');
@@ -160,9 +163,10 @@ class HttpService {
       ).timeout(Duration(seconds: timeout));
 
       if (response.statusCode == 200) {
+        print('getTaskInfo result: ' + response.body);
         return TaskInfo.fromJson(jsonDecode(response.body));
       } else {
-        throw Exception('Failed to get task info: ${response.statusCode}');
+        throw Exception('Failed to get task info: \\${response.statusCode}');
       }
     } catch (e) {
       print('Error getting task info: $e');
@@ -182,9 +186,10 @@ class HttpService {
       ).timeout(Duration(seconds: timeout));
 
       if (response.statusCode == 200) {
+        print('getSystemInfo result: ' + response.body);
         return response.body;
       } else {
-        throw Exception('Failed to get system info: ${response.statusCode}');
+        throw Exception('Failed to get system info: \\${response.statusCode}');
       }
     } catch (e) {
       print('Error getting system info: $e');
@@ -208,6 +213,7 @@ class HttpService {
       ).timeout(Duration(seconds: timeout));
 
       if (response.statusCode == 200) {
+        print('getBrowserInfo result: ' + response.body);
         final Map<String, dynamic> data = jsonDecode(response.body);
         if (data.containsKey('browser_url') && data['browser_url'] is List) {
           final List<dynamic> browserUrlList = data['browser_url'];
@@ -219,7 +225,7 @@ class HttpService {
           return []; // Or throw Exception('Invalid format for browser_url');
         }
       } else {
-        throw Exception('Failed to get browser info: ${response.statusCode}');
+        throw Exception('Failed to get browser info: \\${response.statusCode}');
       }
     } catch (e) {
       print('Error getting browser info: $e');
@@ -260,9 +266,10 @@ class HttpService {
       ).timeout(const Duration(seconds: 30));
 
       if (response.statusCode == 200) {
+        print('getSoftwareInfo result: ' + response.body);
         return Map<String, dynamic>.from(jsonDecode(response.body));
       } else {
-        throw Exception('Failed to get software info: ${response.statusCode}');
+        throw Exception('Failed to get software info: \\${response.statusCode}');
       }
     } catch (e) {
       print('Error getting software info: $e');
@@ -298,9 +305,10 @@ class HttpService {
       ).timeout(const Duration(seconds: 10));
 
       if (response.statusCode == 200) {
+        print('getFirmwareInfo result: ' + response.body);
         return Map<String, dynamic>.from(jsonDecode(response.body));
       } else {
-        throw Exception('Failed to get firmware info: ${response.statusCode}');
+        throw Exception('Failed to get firmware info: \\${response.statusCode}');
       }
     } catch (e) {
       print('Error getting firmware info: $e');
@@ -329,9 +337,10 @@ class HttpService {
       ).timeout(const Duration(seconds: 15));
 
       if (response.statusCode == 200) {
+        print('getServiceInfo result: ' + response.body);
         return Map<String, dynamic>.from(jsonDecode(response.body));
       } else {
-        throw Exception('Failed to get service status: ${response.statusCode}');
+        throw Exception('Failed to get service status: \\${response.statusCode}');
       }
     } catch (e) {
       print('Error getting service status: $e');
@@ -368,9 +377,10 @@ class HttpService {
       ).timeout(const Duration(seconds: 15));
 
       if (response.statusCode == 200) {
+        print('getSingleServiceInfo result: ' + response.body);
         return Map<String, dynamic>.from(jsonDecode(response.body));
       } else {
-        throw Exception('Failed to get service status: ${response.statusCode}');
+        throw Exception('Failed to get service status: \\${response.statusCode}');
       }
     } catch (e) {
       print('Error getting single service status: $e');
@@ -460,6 +470,7 @@ class HttpService {
       if (response.statusCode != 200) {
         throw Exception('Failed to update service status: ${response.statusCode}');
       }
+      print('updateServiceStatus result: ' + response.body);
     } catch (e) {
       print('Error updating service status: $e');
       throw Exception('Failed to update service: $e');
@@ -528,6 +539,7 @@ class HttpService {
       if (response.statusCode != 200) {
         throw Exception('Failed to update software package: ${response.statusCode}');
       }
+      print('updateSoftwarePackage result: ' + response.body);
     } catch (e) {
       print('Error updating software package: $e');
       throw Exception('Failed to update software package: $e');
@@ -543,6 +555,7 @@ class HttpService {
     final response = await http.get(Uri.parse('$_baseUrl/api/zigbee/info'));
     if (response.statusCode == 200) {
       final data = jsonDecode(response.body);
+      print('fetchZigbeeInfo result: ' + response.body);
       return data['zigbee'];
     } else {
       return null;
@@ -600,6 +613,7 @@ class HttpService {
       if (response.statusCode != 200) {
         throw Exception('Failed to send Zigbee command: ${response.statusCode}');
       }
+      print('sendZigbeeCommand result: ' + response.body);
     } catch (e) {
       print('Error sending Zigbee command: $e');
       throw Exception('Failed to send Zigbee command: $e');
@@ -625,10 +639,10 @@ class HttpService {
       ).timeout(const Duration(seconds: 10));
 
       if (response.statusCode == 200) {
-        print('Setting info response: ${response.body}');
+        print('getSettingInfo result: ' + response.body);
         return response.body;
       } else {
-        throw Exception('Failed to get setting info: ${response.statusCode}');
+        throw Exception('Failed to get setting info: \\${response.statusCode}');
       }
     } catch (e) {
       print('Error getting setting info: $e');
@@ -699,6 +713,84 @@ class HttpService {
     } catch (e) {
       print('Error sending setting command: $e');
       throw Exception('Error sending setting command: $e');
+    }
+  }
+
+  // 获取 Zigbee/Thread Channel 信息
+  Future<Map<String, dynamic>> fetchChannelInfo() async {
+    if (_baseUrl == null) {
+      throw Exception('HTTP Service not configured with a device IP');
+    }
+    try {
+      final response = await http.get(
+        Uri.parse('$_baseUrl/api/channel/info'),
+      ).timeout(const Duration(seconds: 10));
+      if (response.statusCode == 200) {
+        return Map<String, dynamic>.from(jsonDecode(response.body));
+      } else {
+        throw Exception('Failed to get channel info: ${response.statusCode}');
+      }
+    } catch (e) {
+      print('Error getting channel info: $e');
+      // 返回默认结构
+      return {
+        'zigbee_mode': 'none',
+        'zigbee': 0,
+        'thread': 0
+      };
+    }
+  }
+
+  // 切换 Zigbee/Thread Channel
+  Future<String> sendChannelCommand(String type, int channel) async {
+    if (_baseUrl == null) {
+      throw Exception('HTTP Service not configured with a device IP');
+    }
+    if (!(type == 'zigbee' || type == 'thread')) {
+      throw Exception('Invalid type for channel command');
+    }
+    try {
+      Map<String, String> paramMap = {};
+      paramMap['command'] = type;
+
+      final paramJson = jsonEncode({'action':'channel', 'value': channel.toString()});
+      final paramBase64 = base64Encode(utf8.encode(paramJson));
+      paramMap['param'] = paramBase64;
+      int tvalue = DateTime.now().millisecondsSinceEpoch;
+      paramMap['_ct'] = tvalue.toString();
+      // 签名
+      var sortedKeys = paramMap.keys.toList()..sort();
+      var signParts = <String>[];
+      for (var k in sortedKeys) {
+        signParts.add('${Uri.encodeComponent(k)}=${Uri.encodeComponent(paramMap[k]!)}');
+      }
+      String signStr = signParts.join('&');
+      String md5Input = '$signStr&ThirdReality';
+      String sig = md5.convert(utf8.encode(md5Input)).toString();
+      paramMap['_sig'] = sig;
+      // 构造body
+      List<String> orderedKeys = ['command', 'param', '_ct', '_sig'];
+      var bodyParts = <String>[];
+      for (var k in orderedKeys) {
+        if (paramMap.containsKey(k)) {
+          bodyParts.add('${Uri.encodeComponent(k)}=${Uri.encodeComponent(paramMap[k]!)}');
+        }
+      }
+      String bodyStr = bodyParts.join('&');
+      print('sending channel command: $bodyStr');
+      final response = await http.post(
+        Uri.parse('$_baseUrl/api/system/command'),
+        headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+        body: bodyStr,
+      ).timeout(const Duration(seconds: 10));
+      if (response.statusCode == 200) {
+        return response.body;
+      } else {
+        throw Exception('Failed to send channel command: ${response.statusCode}');
+      }
+    } catch (e) {
+      print('Error sending channel command: $e');
+      throw Exception('Error sending channel command: $e');
     }
   }
 }

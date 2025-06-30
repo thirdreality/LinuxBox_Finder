@@ -15,14 +15,16 @@ class PackageManagerScreen extends StatefulWidget {
 }
 
 class _PackageManagerScreenState extends State<PackageManagerScreen> {
-  String? zigbeeMode;
+  Map<String, dynamic>? channelInfo;
+  bool loading = false;
+  String? error;
   final ValueNotifier<int> _progressNotifier = ValueNotifier(0);
   final ValueNotifier<String> _messageNotifier = ValueNotifier("Starting...");
 
   @override
   void initState() {
     super.initState();
-    _fetchZigbeeInfo();
+    _fetchChannelInfo();
   }
 
   @override
@@ -32,18 +34,25 @@ class _PackageManagerScreenState extends State<PackageManagerScreen> {
     super.dispose();
   }
 
-  Future<void> _fetchZigbeeInfo() async {
+  Future<void> _fetchChannelInfo() async {
+    setState(() {
+      loading = true;
+      error = null;
+    });
     try {
-      final mode = await HttpService().fetchZigbeeInfo();
+      final info = await HttpService().fetchChannelInfo();
+      print('fetchChannelInfo result: ' + info.toString());
       if (mounted) {
         setState(() {
-          zigbeeMode = mode;
+          channelInfo = info;
+          loading = false;
         });
       }
     } catch (e) {
       if (mounted) {
         setState(() {
-          zigbeeMode = null;
+          error = e.toString();
+          loading = false;
         });
       }
     }
@@ -90,7 +99,7 @@ class _PackageManagerScreenState extends State<PackageManagerScreen> {
           timer.cancel();
           Navigator.of(context).pop(); // Close dialog
           if (taskName == 'zigbee') {
-            _fetchZigbeeInfo();
+            _fetchChannelInfo();
           }
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(content: Text('${taskInfo.data.subTask} ${taskInfo.data.status}!')),
@@ -224,7 +233,102 @@ class _PackageManagerScreenState extends State<PackageManagerScreen> {
     }
   }
 
-  Widget _buildPackageCard() {
+  Future<void> _handleChannelSwitch(String type, int currentChannel) async {
+    final selected = await showDialog<int>(
+      context: context,
+      builder: (context) {
+        return SimpleDialog(
+          title: Text('Select $type channel'),
+          children: [15, 20, 25].map((ch) => SimpleDialogOption(
+            child: Row(
+              children: [
+                if (ch == currentChannel) Icon(Icons.check, color: Colors.blue),
+                if (ch == currentChannel) SizedBox(width: 8),
+                Text('Channel $ch', style: TextStyle(fontSize: 20)),
+              ],
+            ),
+            onPressed: () => Navigator.pop(context, ch),
+          )).toList(),
+        );
+      },
+    );
+    if (selected != null && selected != currentChannel) {
+      try {
+        // 显示loading对话框
+        showDialog(
+          context: context,
+          barrierDismissible: false,
+          builder: (context) => const Center(child: CircularProgressIndicator()),
+        );
+        print('sendChannelCommand: type=$type, selected=$selected');
+        final result = await HttpService().sendChannelCommand(type, selected);
+        print('sendChannelCommand result: ' + result.toString());
+        if (type == 'zigbee') {
+          final mode = channelInfo?["zigbee_mode"] ?? "none";
+          if (mode == 'z2m') {
+            Navigator.of(context).pop(); // 关闭loading
+            await showDialog(
+              context: context,
+              builder: (context) => AlertDialog(
+                title: const Text('Notice'),
+                content: const Text('Zigbee will reboot to switch channel. Please wait 2~3 minutes before refreshing.'),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    child: const Text('OK'),
+                  ),
+                ],
+              ),
+            );
+          } else if (mode == 'zha') {
+            Navigator.of(context).pop(); // 关闭loading
+            await showDialog(
+              context: context,
+              builder: (context) => AlertDialog(
+                title: const Text('Notice'),
+                content: Text('Zigbee channel has been switched to $selected.'),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    child: const Text('OK'),
+                  ),
+                ],
+              ),
+            );
+          } else {
+            Navigator.of(context).pop(); // 关闭loading
+          }
+          await _fetchChannelInfo();
+        } else if (type == 'thread') {
+          Navigator.of(context).pop(); // 关闭loading
+          await showDialog(
+            context: context,
+            builder: (context) => AlertDialog(
+              title: const Text('Notice'),
+              content: const Text('Thread device needs about 5 minutes to complete channel switching. Please refresh after 5 minutes.'),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: const Text('OK'),
+                ),
+              ],
+            ),
+          );
+        } else {
+          Navigator.of(context).pop(); // 关闭loading
+        }
+      } catch (e) {
+        Navigator.of(context).pop(); // 关闭loading
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to switch $type channel: $e')),
+        );
+      }
+    }
+  }
+
+  Widget _buildZigbeeCard() {
+    final mode = channelInfo?["zigbee_mode"] ?? "none";
+    final zigbeeChannel = channelInfo?["zigbee"] ?? 0;
     return Card(
       margin: const EdgeInsets.all(16),
       child: Column(
@@ -234,42 +338,73 @@ class _PackageManagerScreenState extends State<PackageManagerScreen> {
             padding: EdgeInsets.all(16.0),
             child: Row(
               children: [
-                Icon(Icons.language), // Icon for Zigbee
+                Icon(Icons.language),
                 SizedBox(width: 8),
-                Text('Zigbee',
-                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                Text('Zigbee', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
               ],
             ),
           ),
-          const Divider(),
+          // Switch ZHA mode
           ListTile(
-            leading: Icon(Icons.swap_horiz, color: zigbeeMode == 'z2m' || zigbeeMode == null ? Colors.blue : Colors.grey),
-            title: Text('Switch ZHA Mode',
-                style: TextStyle(color: zigbeeMode == 'z2m' || zigbeeMode == null ? Colors.blue : Colors.grey)),
-            trailing: zigbeeMode == 'zha'
+            contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+            leading: Icon(Icons.swap_horiz, color: mode == 'zha' ? Colors.grey : Colors.blue),
+            title: Text('Switch ZHA Mode', style: TextStyle(color: mode == 'zha' ? Colors.grey : Colors.blue)),
+            trailing: mode == 'zha'
                 ? null
                 : IconButton(
                     icon: const Icon(Icons.arrow_forward_ios, color: Colors.blue),
                     onPressed: () => _sendZigbeeCommand('zha'),
                   ),
           ),
+          // Switch Z2M mode
           ListTile(
-            leading: Icon(Icons.swap_horiz, color: zigbeeMode == 'zha' || zigbeeMode == null ? Colors.blue : Colors.grey),
-            title: Text('Switch Z2M Mode',
-                style: TextStyle(color: zigbeeMode == 'zha' || zigbeeMode == null ? Colors.blue : Colors.grey)),
-            trailing: zigbeeMode == 'z2m'
+            contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+            leading: Icon(Icons.swap_horiz, color: mode == 'z2m' ? Colors.grey : Colors.blue),
+            title: Text('Switch Z2M Mode', style: TextStyle(color: mode == 'z2m' ? Colors.grey : Colors.blue)),
+            trailing: mode == 'z2m'
                 ? null
                 : IconButton(
                     icon: const Icon(Icons.arrow_forward_ios, color: Colors.blue),
                     onPressed: () => _sendZigbeeCommand('z2m'),
                   ),
           ),
+          const Divider(),
+          // Permit Join
+          ListTile(
+            contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+            leading: const Icon(Icons.search, color: Colors.blue),
+            title: const Text('Permit Join'),
+            trailing: IconButton(
+              icon: const Icon(Icons.arrow_forward_ios, color: Colors.blue),
+              onPressed: () {
+                _sendZigbeeCommand('scan');
+              },
+            ),
+          ),
+          const Divider(),
+          // Channel Switch
+          ListTile(
+            contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+            leading: const Icon(Icons.settings_input_antenna, color: Colors.orange),
+            title: const Text('Channel switch'),
+            trailing: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text('$zigbeeChannel', style: const TextStyle(fontWeight: FontWeight.bold)),
+                const SizedBox(width: 8),
+                Icon(Icons.arrow_forward_ios, color: Colors.blue),
+                const SizedBox(width: 12),
+              ],
+            ),
+            onTap: () => _handleChannelSwitch('zigbee', zigbeeChannel),
+          ),
         ],
       ),
     );
   }
 
-  Widget _buildPermitJoinCard() {
+  Widget _buildThreadCard() {
+    final threadChannel = channelInfo?["thread"] ?? 0;
     return Card(
       margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
       child: Column(
@@ -279,22 +414,27 @@ class _PackageManagerScreenState extends State<PackageManagerScreen> {
             padding: EdgeInsets.all(16.0),
             child: Row(
               children: [
-                Icon(Icons.search, color: Colors.blue),
+                Icon(Icons.device_hub, color: Colors.green),
                 SizedBox(width: 8),
-                Text('Permit Join',
-                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                Text('Thread', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
               ],
             ),
           ),
           const Divider(),
           ListTile(
-            title: const Text('Scan'),
-            trailing: IconButton(
-              icon: const Icon(Icons.arrow_forward_ios, color: Colors.blue),
-              onPressed: () {
-                _sendZigbeeCommand('scan');
-              },
+            contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+            leading: const Icon(Icons.settings_input_antenna, color: Colors.orange),
+            title: const Text('Channel switch'),
+            trailing: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text('$threadChannel', style: const TextStyle(fontWeight: FontWeight.bold)),
+                const SizedBox(width: 8),
+                Icon(Icons.arrow_forward_ios, color: Colors.blue),
+                const SizedBox(width: 12),
+              ],
             ),
+            onTap: () => _handleChannelSwitch('thread', threadChannel),
           ),
         ],
       ),
@@ -313,29 +453,28 @@ class _PackageManagerScreenState extends State<PackageManagerScreen> {
               children: [
                 Icon(Icons.settings), // Icon for Setting
                 SizedBox(width: 8),
-                Text('Setting',
-                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                Text('Setting', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
               ],
             ),
           ),
           const Divider(),
           ListTile(
+            contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+            leading: const Icon(Icons.backup, color: Colors.blue),
             title: const Text('Backup'),
-            trailing: IconButton(
-              icon: const Icon(Icons.arrow_forward_ios),
-              onPressed: () {
-                _sendSettingCommand('backup');
-              },
-            ),
+            trailing: const Icon(Icons.arrow_forward_ios, color: Colors.blue),
+            onTap: () {
+              _sendSettingCommand('backup');
+            },
           ),
           ListTile(
+            contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+            leading: const Icon(Icons.restore, color: Colors.green),
             title: const Text('Restore'),
-            trailing: IconButton(
-              icon: const Icon(Icons.arrow_forward_ios),
-              onPressed: () {
-                _handleRestore();
-              },
-            ),
+            trailing: const Icon(Icons.arrow_forward_ios, color: Colors.blue),
+            onTap: () {
+              _handleRestore();
+            },
           ),
         ],
       ),
@@ -347,14 +486,26 @@ class _PackageManagerScreenState extends State<PackageManagerScreen> {
     return Scaffold(
       appBar: AppBar(
         title: Text(widget.packageId),
-      ),
-      body: ListView(
-        children: [
-          _buildPackageCard(),
-          _buildPermitJoinCard(),
-          _buildSettingCard(),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            onPressed: loading ? null : _fetchChannelInfo,
+          ),
         ],
       ),
+      body: loading
+          ? const Center(child: CircularProgressIndicator())
+          : error != null
+              ? Center(child: Text('Error: ' + error!))
+              : ListView(
+                  children: [
+                    if (channelInfo != null) ...[
+                      _buildZigbeeCard(),
+                      _buildThreadCard(),
+                    ],
+                    _buildSettingCard(),
+                  ],
+                ),
     );
   }
 }
