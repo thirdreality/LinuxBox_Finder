@@ -782,7 +782,7 @@ class HttpService {
         Uri.parse('$_baseUrl/api/system/command'),
         headers: {'Content-Type': 'application/x-www-form-urlencoded'},
         body: bodyStr,
-      ).timeout(const Duration(seconds: 10));
+      ).timeout(const Duration(seconds: 30));
       if (response.statusCode == 200) {
         return response.body;
       } else {
