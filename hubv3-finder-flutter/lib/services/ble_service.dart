@@ -13,6 +13,13 @@ class BleService {
   // Public getter for discovered devices
   List<BleDevice> get discoveredDevices => _discoveredDevices;
   
+  // Clear discovered devices list
+  void clearDevices() {
+    _discoveredDevices.clear();
+    _deviceStreamController.add(_discoveredDevices);
+    print('[BLE] Device list cleared');
+  }
+  
   // Singleton instance
   static final BleService _instance = BleService._internal();
   factory BleService() => _instance;
@@ -68,11 +75,13 @@ class BleService {
   // Initialize BLE
   Future<bool> initialize() async {
     try {
-      // Request Bluetooth permissions
+      // Request Bluetooth and Location permissions
       Map<Permission, PermissionStatus> permissions = await [
         Permission.bluetoothScan,     // Android 12+ BLE scan permission
         Permission.bluetoothConnect,  // Android 12+ BLE connect permission
         Permission.bluetooth,         // Legacy Bluetooth permission
+        Permission.location,          // Location permission for BLE scan
+        Permission.locationWhenInUse, // Location when in use (for some Android versions)
       ].request();
 
       // Check if any critical permissions were denied
@@ -519,7 +528,12 @@ class BleService {
   }
 
   // Configure WiFi
-  Future<String> configureWiFi(String ssid, String password, bool restore) async {
+  Future<dynamic> configureWiFi(
+    String ssid,
+    String password,
+    bool restore,
+    {void Function()? onAllChunksSent}
+  ) async {
     String defaultResult = '{"ip":""}';
     try {
       print('Configuring WiFi using BLE mode');
@@ -809,8 +823,8 @@ class BleService {
       // Enable indicate
       try {
         print('*** Attempting to enable notifications for characteristic');
-        print('*** Notify supported: [38;5;2m${wifiConfigChar.properties.notify}[0m');
-        print('*** Indicate supported: [38;5;2m${wifiConfigChar.properties.indicate}[0m');
+        print('*** Notify supported:  [38;5;2m${wifiConfigChar.properties.notify} [0m');
+        print('*** Indicate supported:  [38;5;2m${wifiConfigChar.properties.indicate} [0m');
         
         await wifiConfigChar.setNotifyValue(true);
         print('WiFi config notification enabled');
@@ -820,7 +834,7 @@ class BleService {
         if (wifiConfigChar.properties.write) {
           String jsonPayloadWithNewline = jsonPayload + '\n';
           List<int> data = utf8.encode(jsonPayloadWithNewline);
-          print('WiFi config data length: [38;5;2m${data.length}[0m bytes (including newline terminator)');
+          print('WiFi config data length:  [38;5;2m${data.length} [0m bytes (including newline terminator)');
           print('Sending in 20-byte chunks (no long write)');
 
           int maxSendLength = 20;
@@ -848,6 +862,9 @@ class BleService {
             }
           }
           print('All chunks sent.');
+          if (onAllChunksSent != null) {
+            onAllChunksSent();
+          }
         }
 
         // Wait for notification result or timeout

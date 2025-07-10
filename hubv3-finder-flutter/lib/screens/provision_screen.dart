@@ -24,6 +24,8 @@ class _ProvisionScreenState extends State<ProvisionScreen> {
   bool _dialogOpen = false;
   bool _suppressConnectionLostMessages = false; // Flag to suppress connection lost messages during provision
   String _deviceName = '';
+  final ValueNotifier<String> _progressMessage = ValueNotifier<String>('');
+  bool _isDialogOpen = false;
 
   @override
   void dispose() {
@@ -35,60 +37,38 @@ class _ProvisionScreenState extends State<ProvisionScreen> {
     super.dispose();
   }
 
-  void _showLoadingDialog(String title) {
-    print('[Dialog] Showing loading dialog: $title');
-    _dialogOpen = true;
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) {
-        return AlertDialog(
-          title: Text(title, style: const TextStyle(fontSize: 16)), // Smaller font size
-          content: Row(
-            children: const [
-              CircularProgressIndicator(),
-              SizedBox(width: 16),
-              Expanded(child: Text('Please wait...')),
-            ],
-          ),
-        );
-      },
-    ).then((_) {
-      if (mounted) {
-        print('[Dialog] Dialog closed via .then() callback');
-        _dialogOpen = false;
-      }
-    });
-  }
-
-  void _closeDialogIfOpen() {
-    print('[Dialog] Attempting to close dialog. _dialogOpen: $_dialogOpen, mounted: $mounted');
-    if (_dialogOpen && mounted) {
-      try {
-        Navigator.of(context, rootNavigator: true).pop();
-        print('[Dialog] Dialog closed successfully');
-      } catch (e) {
-        print('[Dialog] Error closing dialog: $e');
-      }
-      _dialogOpen = false;
-    } else {
-      print('[Dialog] Dialog not open or widget not mounted. _dialogOpen: $_dialogOpen, mounted: $mounted');
+  void _showLoadingDialog(String message) {
+    _progressMessage.value = message;
+    if (!_isDialogOpen) {
+      _isDialogOpen = true;
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) {
+          return AlertDialog(
+            content: ValueListenableBuilder<String>(
+              valueListenable: _progressMessage,
+              builder: (_, msg, __) => Row(
+                children: [
+                  const CircularProgressIndicator(),
+                  const SizedBox(width: 16),
+                  Expanded(child: Text(msg)),
+                ],
+              ),
+            ),
+          );
+        },
+      ).then((_) {
+        _isDialogOpen = false;
+      });
     }
   }
 
   void _forceCloseDialog() {
-    print('[Dialog] Force closing dialog - _dialogOpen: $_dialogOpen, mounted: $mounted');
-    if (mounted) {
-      try {
-        // Always try to pop dialog regardless of _dialogOpen state
-        // This handles cases where dialog state tracking might be out of sync
-        Navigator.of(context, rootNavigator: true).pop();
-        print('[Dialog] Dialog force closed successfully');
-      } catch (e) {
-        print('[Dialog] Error force closing dialog (this is normal if no dialog is open): $e');
-      }
+    if (_isDialogOpen) {
+      Navigator.of(context, rootNavigator: true).pop();
+      _isDialogOpen = false;
     }
-    _dialogOpen = false;
   }
 
   final _formKey = GlobalKey<FormState>();
@@ -203,7 +183,7 @@ class _ProvisionScreenState extends State<ProvisionScreen> {
         }
       } finally {
       setState(() { _isLoading = false; });
-      _closeDialogIfOpen(); // Close the WiFi scan dialog
+      _forceCloseDialog(); // Close the WiFi scan dialog
     }
   }
 
@@ -217,252 +197,190 @@ class _ProvisionScreenState extends State<ProvisionScreen> {
     });
     print('[Provision] _isLoading set to true, back button should be disabled');
 
-    const maxRetries = 3;
-    int connectionRetryCount = 0;
     String? errorMessage;
-
-    while (connectionRetryCount < maxRetries) {
+    try {
+      // 1. Connect to device
+      _showLoadingDialog('Connecting to device...');
+      final bleService = BleService();
       try {
-        _showLoadingDialog('Connecting to device (Attempt ${connectionRetryCount + 1}/$maxRetries)...');
-
-        // Step 1: Connect to BLE device
-        final bleService = BleService();
-        try {
-          print('[Provision] Attempting BLE connection to device: ${widget.deviceId}');
-          await bleService.connectToDevice(widget.deviceId);
-          print('[Provision] BLE connection successful');
-        } catch (bleError) {
-          print('[Provision] BLE connection failed: $bleError');
-          
-          // Check if this is android-code: 133 (don't count towards retry limit)
-          if (bleError.toString().contains('android-code: 133')) {
-            print('[Provision] Android error code 133 detected, retrying connection...');
-            _forceCloseDialog();
-            _showLoadingDialog('Bluetooth error 133 detected. Retrying connection...');
-            await Future.delayed(const Duration(seconds: 2));
-            continue; // Don't increment connectionRetryCount
-          }
-
-          connectionRetryCount++;
-          if (connectionRetryCount >= maxRetries) {
-            errorMessage = 'Failed to connect to device after $maxRetries attempts: $bleError';
-            break;
-          }
-
-          _forceCloseDialog();
-          _showLoadingDialog('Connection failed. Retrying (${connectionRetryCount + 1}/$maxRetries)...');
-          await Future.delayed(const Duration(seconds: 1));
-          continue;
-        }
-
-        // Step 2: Configure WiFi (no retry for configuration errors)
-        try {
-          _forceCloseDialog();
-          _showLoadingDialog('Configuring WiFi...');
-
-          final result = await bleService.configureWiFi(
-            _selectedSSID ?? '',
-            _passwordController.text,
-            false,
-          );
-
-          print('[Provision] WiFi configuration result: $result');
-
-          final Map<String, dynamic> json = result is String ? Map<String, dynamic>.from(jsonDecode(result)) : {};
-
-          // Handle error response - only retry on 'conn fail' or BLE 133 error
-          if (json.containsKey('err') || json.containsKey('error')) {
-            String err = json['err'] ?? json['error'] ?? 'Unknown error';
-            if (err == 'conn fail') {
-              // Only 'conn fail' is allowed to retry
-              connectionRetryCount++;
-              if (connectionRetryCount < maxRetries) {
-                _forceCloseDialog();
-                _showLoadingDialog('WiFi连接失败，正在重试...');
-                await Future.delayed(const Duration(seconds: 1));
-                continue;
-              } else {
-                errorMessage = 'WiFi连接失败: $err';
-                break;
-              }
-            } else {
-              // Other errors: do not retry, just show error
-              errorMessage = 'WiFi配置失败: $err';
-              break;
-            }
-          }
-
-          // Handle new response format: {"ip":"%s"}
-          if (json.containsKey('ip')) {
-            String ipAddress = json['ip'] ?? '';
-            if (ipAddress.isNotEmpty) {
-              // Success case - device has IP address
-              print('[Provision] WiFi configuration successful, IP: $ipAddress');
-              await bleService.disconnect();
-              
-              // Save device information
-              final prefs = await SharedPreferences.getInstance();
-              await prefs.setString('selected_device_ip', ipAddress);
-              await prefs.setString('selected_device_id', widget.deviceId);
-              if (_selectedSSID != null && _selectedSSID!.isNotEmpty) {
-                await prefs.setString('selected_ssid', _selectedSSID!);
-              }
-              if (_deviceName.isNotEmpty) {
-                await prefs.setString('selected_device_name', _deviceName);
-              }
-              
-              // Call success callback
-              if (widget.onProvisionSuccess != null) {
-                widget.onProvisionSuccess!(ipAddress);
-              }
-              
-              _forceCloseDialog();
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('WiFi configuration successful! Returning to home page.'),
-                  backgroundColor: Colors.green,
-                ),
-              );
-              
-              // Clean up state before navigation to prevent any delayed callbacks
-              setState(() {
-                _isLoading = false;
-                _suppressConnectionLostMessages = false;
-              });
-              
-              // Navigate immediately without delay to prevent issues with disposed widget
-              if (mounted) {
-                print('[Provision] Navigating to home page after successful configuration');
-                Navigator.of(context).pushNamedAndRemoveUntil('/', (route) => false);
-              }
-              return;
-            } else {
-              // Failure case - empty IP address
-              print('[Provision] Configuration failed - empty IP address');
-              if (bleService.isConnected) {
-                bleService.disconnect();
-              }
-              errorMessage = 'WiFi configuration failed, please check your password and try again.';
-              break; // Exit retry loop for configuration failures
-            }
-          }
-
-          // Handle legacy response format for backward compatibility
-          if (json.containsKey('status')) {
-            if (json['status'] == true && json['ip'] != null && json['ip'].toString().isNotEmpty) {
-              // Success case
-              print('[Provision] WiFi configuration successful (legacy format)');
-              await bleService.disconnect();
-              
-              // Save device information
-              final prefs = await SharedPreferences.getInstance();
-              await prefs.setString('selected_device_ip', json['ip']);
-              await prefs.setString('selected_device_id', widget.deviceId);
-              if (_selectedSSID != null && _selectedSSID!.isNotEmpty) {
-                await prefs.setString('selected_ssid', _selectedSSID!);
-              }
-              if (_deviceName.isNotEmpty) {
-                await prefs.setString('selected_device_name', _deviceName);
-              }
-              
-              // Call success callback
-              if (widget.onProvisionSuccess != null) {
-                widget.onProvisionSuccess!(json['ip']);
-              }
-              
-              _forceCloseDialog();
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('WiFi configuration successful! Returning to home page.'),
-                  backgroundColor: Colors.green,
-                ),
-              );
-              
-              // Clean up state before navigation to prevent any delayed callbacks
-              setState(() {
-                _isLoading = false;
-                _suppressConnectionLostMessages = false;
-              });
-              
-              // Navigate immediately without delay to prevent issues with disposed widget
-              if (mounted) {
-                print('[Provision] Navigating to home page after successful configuration');
-                Navigator.of(context).pushNamedAndRemoveUntil('/', (route) => false);
-              }
-              return;
-            } else {
-              // Failure case - status: false
-              print('[Provision] Configuration failed - status: false, staying on current page');
-              if (bleService.isConnected) {
-                bleService.disconnect();
-              }
-              errorMessage = 'WiFi configuration failed, please check your password and try again.';
-              break; // Exit retry loop for configuration failures
-            }
-          }
-
-          // Invalid response format
-          // Only disconnect if BLE is actually connected
-          if (bleService.isConnected) {
-            bleService.disconnect();
-          }
-          errorMessage = 'Invalid response from device';
-          break;
-
-        } catch (configError) {
-          print('[Provision] WiFi configuration error: $configError');
-          // Only disconnect if BLE is actually connected
-          if (bleService.isConnected) {
-            bleService.disconnect();
-          }
-          
-          // Check if this is a connection-related error that should trigger retry
-          if (configError.toString().contains('connection') || 
-              configError.toString().contains('disconnect') ||
-              configError.toString().contains('timeout')) {
-            connectionRetryCount++;
-            if (connectionRetryCount >= maxRetries) {
-              errorMessage = 'WiFi configuration failed after $maxRetries attempts: $configError';
-              break;
-            } else {
-              _forceCloseDialog();
-              _showLoadingDialog('Configuration error. Reconnecting for retry (${connectionRetryCount + 1}/$maxRetries)...');
-              await Future.delayed(const Duration(seconds: 1));
-            }
-            continue; // Retry connection
-          } else {
-            // Non-connection error, don't retry
-            errorMessage = 'WiFi configuration error: $configError';
-            break;
-          }
-        }
-
-      } catch (e) {
-        print('[Provision] General error: $e');
-        connectionRetryCount++;
-        if (connectionRetryCount >= maxRetries) {
-          errorMessage = 'Provision failed after $maxRetries attempts: $e';
-        } else {
-          _forceCloseDialog();
-          _showLoadingDialog('Error occurred. Retrying (${connectionRetryCount + 1}/$maxRetries)...');
-          await Future.delayed(const Duration(seconds: 1));
-        }
+        print('[Provision] Attempting BLE connection to device: ${widget.deviceId}');
+        await bleService.connectToDevice(widget.deviceId);
+        print('[Provision] BLE connection successful');
+      } catch (bleError) {
+        print('[Provision] BLE connection failed: $bleError');
+        _forceCloseDialog();
+        errorMessage = 'Failed to connect to device: $bleError';
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(errorMessage), backgroundColor: Colors.red),
+        );
+        setState(() {
+          _isLoading = false;
+          _suppressConnectionLostMessages = false;
+        });
+        return;
       }
-    }
 
-    // Show error if we failed after all retries
-    if (errorMessage != null) {
-      print('[Provision] Showing error message and staying on current page: $errorMessage');
+      // 2. Send WiFi config
+      _showLoadingDialog('Sending WiFi config...');
+      try {
+        final result = await bleService.configureWiFi(
+          _selectedSSID ?? '',
+          _passwordController.text,
+          false,
+          onAllChunksSent: () {
+            // 3. Waiting response
+            _showLoadingDialog('Waiting for response...');
+          },
+        );
+        print('[Provision] WiFi configuration result: $result');
+        final Map<String, dynamic> json = result is String ? Map<String, dynamic>.from(jsonDecode(result)) : {};
+        if (json.containsKey('err') || json.containsKey('error')) {
+          String err = json['err'] ?? json['error'] ?? 'Unknown error';
+          _forceCloseDialog();
+          errorMessage = 'WiFi configuration failed: $err';
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(errorMessage), backgroundColor: Colors.red),
+          );
+          setState(() {
+            _isLoading = false;
+            _suppressConnectionLostMessages = false;
+          });
+          return;
+        }
+
+        // 4. Parsing response
+        _showLoadingDialog('Parsing response ...');
+        if (json.containsKey('ip')) {
+          String ipAddress = json['ip'] ?? '';
+          if (ipAddress.isNotEmpty) {
+            print('[Provision] WiFi configuration successful, IP: $ipAddress');
+            await bleService.disconnect();
+            final prefs = await SharedPreferences.getInstance();
+            await prefs.setString('selected_device_ip', ipAddress);
+            await prefs.setString('selected_device_id', widget.deviceId);
+            if (_selectedSSID != null && _selectedSSID!.isNotEmpty) {
+              await prefs.setString('selected_ssid', _selectedSSID!);
+            }
+            if (_deviceName.isNotEmpty) {
+              await prefs.setString('selected_device_name', _deviceName);
+            }
+            if (widget.onProvisionSuccess != null) {
+              widget.onProvisionSuccess!(ipAddress);
+            }
+            _forceCloseDialog();
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('WiFi configuration successful! Returning to home page.'),
+                backgroundColor: Colors.green,
+              ),
+            );
+            setState(() {
+              _isLoading = false;
+              _suppressConnectionLostMessages = false;
+            });
+            if (mounted) {
+              print('[Provision] Navigating to home page after successful configuration');
+              Navigator.of(context).pushNamedAndRemoveUntil('/', (route) => false);
+            }
+            return;
+          } else {
+            print('[Provision] Configuration failed - empty IP address');
+            if (bleService.isConnected) {
+              bleService.disconnect();
+            }
+            _forceCloseDialog();
+            errorMessage = 'WiFi configuration failed, please check your password and try again.';
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text(errorMessage), backgroundColor: Colors.red),
+            );
+            setState(() {
+              _isLoading = false;
+              _suppressConnectionLostMessages = false;
+            });
+            return;
+          }
+        }
+        if (json.containsKey('status')) {
+          if (json['status'] == true && json['ip'] != null && json['ip'].toString().isNotEmpty) {
+            print('[Provision] WiFi configuration successful (legacy format)');
+            await bleService.disconnect();
+            final prefs = await SharedPreferences.getInstance();
+            await prefs.setString('selected_device_ip', json['ip']);
+            await prefs.setString('selected_device_id', widget.deviceId);
+            if (_selectedSSID != null && _selectedSSID!.isNotEmpty) {
+              await prefs.setString('selected_ssid', _selectedSSID!);
+            }
+            if (_deviceName.isNotEmpty) {
+              await prefs.setString('selected_device_name', _deviceName);
+            }
+            if (widget.onProvisionSuccess != null) {
+              widget.onProvisionSuccess!(json['ip']);
+            }
+            _forceCloseDialog();
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('WiFi configuration successful! Returning to home page.'),
+                backgroundColor: Colors.green,
+              ),
+            );
+            setState(() {
+              _isLoading = false;
+              _suppressConnectionLostMessages = false;
+            });
+            if (mounted) {
+              print('[Provision] Navigating to home page after successful configuration');
+              Navigator.of(context).pushNamedAndRemoveUntil('/', (route) => false);
+            }
+            return;
+          } else {
+            print('[Provision] Configuration failed - status: false, staying on current page');
+            if (bleService.isConnected) {
+              bleService.disconnect();
+            }
+            _forceCloseDialog();
+            errorMessage = 'WiFi configuration failed, please check your password and try again.';
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text(errorMessage), backgroundColor: Colors.red),
+            );
+            setState(() {
+              _isLoading = false;
+              _suppressConnectionLostMessages = false;
+            });
+            return;
+          }
+        }
+        _forceCloseDialog();
+        errorMessage = 'WiFi configuration failed, please try again.';
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(errorMessage), backgroundColor: Colors.red),
+        );
+        setState(() {
+          _isLoading = false;
+          _suppressConnectionLostMessages = false;
+        });
+        return;
+      } catch (wifiError) {
+        _forceCloseDialog();
+        errorMessage = wifiError.toString();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(errorMessage), backgroundColor: Colors.red),
+        );
+        setState(() {
+          _isLoading = false;
+          _suppressConnectionLostMessages = false;
+        });
+        return;
+      }
+    } catch (e) {
       _forceCloseDialog();
-      _showErrorSnackBar(errorMessage);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(errorMessage ?? e.toString()), backgroundColor: Colors.red),
+      );
+      setState(() {
+        _isLoading = false;
+        _suppressConnectionLostMessages = false;
+      });
     }
-
-    setState(() {
-      _isLoading = false;
-      _suppressConnectionLostMessages = false; // Re-enable connection messages after provision
-    });
-    print('[Provision] _isLoading set to false, back button should be re-enabled');
-    print('[Provision] Provision process completed, staying on current page');
   }
   
   void _showErrorSnackBar(String message) {

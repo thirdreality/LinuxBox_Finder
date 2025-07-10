@@ -325,16 +325,16 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           );
           break;
-        case 'firmware_manager':
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (context) => FirmwareManagerScreen(
-                deviceIp: _selectedDeviceIp!,
-              ),
-            ),
-          );
-          break;
+        // case 'firmware_manager':
+        //   Navigator.push(
+        //     context,
+        //     MaterialPageRoute(
+        //       builder: (context) => FirmwareManagerScreen(
+        //         deviceIp: _selectedDeviceIp!,
+        //       ),
+        //     ),
+        //   );
+        //   break;
         case 'reboot':
           await HttpService().rebootDevice();
           ScaffoldMessenger.of(context).showSnackBar(
@@ -398,11 +398,11 @@ class _HomeScreenState extends State<HomeScreen> {
       //   'command': 'service_manager',
       //   'icon': Icons.miscellaneous_services
       // },           
-      {
-        'label': 'Firmware Manager',
-        'command': 'firmware_manager',
-        'icon': Icons.system_update
-      },
+      // {
+      //   'label': 'Firmware Manager',
+      //   'command': 'firmware_manager',
+      //   'icon': Icons.system_update
+      // },
       {
         'label': 'Factory Reset',
         'command': 'factory_reset',

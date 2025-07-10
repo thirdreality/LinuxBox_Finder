@@ -25,6 +25,7 @@ class _DeviceScanScreenState extends State<DeviceScanScreen> {
     super.initState();
     // Clear devices list on page initialization
     _devices = [];
+    _bleService.clearDevices(); // Clear BLE service's device list
     _initializeBle();
   }
 
