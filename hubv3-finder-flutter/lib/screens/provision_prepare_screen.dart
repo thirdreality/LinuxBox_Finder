@@ -90,15 +90,33 @@ class _FlashingLedState extends State<FlashingLed> with SingleTickerProviderStat
 
   @override
   Widget build(BuildContext context) {
-    return FadeTransition(
-      opacity: _controller,
-      child: Container(
-        width: 32.0,
-        height: 32.0,
-        decoration: const BoxDecoration(
-          shape: BoxShape.circle,
-          color: Colors.yellow,
-        ),
+    return SizedBox(
+      width: 260,
+      height: 360,
+      child: Stack(
+        children: [
+          Image.asset(
+            'assets/images/linuxbox-config.png',
+            width: 260,
+            height: 360,
+            fit: BoxFit.cover,
+          ),
+          Positioned(
+            left: 80,
+            top: 70,
+            child: FadeTransition(
+              opacity: _controller,
+              child: Container(
+                width: 32.0,
+                height: 32.0,
+                decoration: const BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: Colors.yellow,
+                ),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
