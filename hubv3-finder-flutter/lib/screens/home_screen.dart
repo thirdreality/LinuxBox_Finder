@@ -126,7 +126,8 @@ class _HomeScreenState extends State<HomeScreen> {
         return; // Success, exit retry loop
       } catch (e) {
         // Log retry error, continue to next attempt
-        if (i == 2) { // Last retry failed
+        if (i == 2) {
+          // Last retry failed
           if (!mounted) return;
           setState(() {
             _browserUrlsError = 'Failed to load browser URLs after retries.';
@@ -279,7 +280,8 @@ class _HomeScreenState extends State<HomeScreen> {
                               ),
                             ],
                           ),
-                          if (_wifiStatus!.ssid != null && _wifiStatus!.ssid!.isNotEmpty)
+                          if (_wifiStatus!.ssid != null &&
+                              _wifiStatus!.ssid!.isNotEmpty)
                             Text('SSID: ${_wifiStatus!.ssid!}',
                                 style: const TextStyle(fontSize: 14)),
                         ],
@@ -368,7 +370,8 @@ class _HomeScreenState extends State<HomeScreen> {
                       );
                     }
                   },
-                  child: const Text('Reset', style: TextStyle(color: Colors.red)),
+                  child:
+                      const Text('Reset', style: TextStyle(color: Colors.red)),
                 ),
               ],
             ),
@@ -397,7 +400,7 @@ class _HomeScreenState extends State<HomeScreen> {
       //   'label': 'Service Manager',
       //   'command': 'service_manager',
       //   'icon': Icons.miscellaneous_services
-      // },           
+      // },
       // {
       //   'label': 'Firmware Manager',
       //   'command': 'firmware_manager',
@@ -407,12 +410,12 @@ class _HomeScreenState extends State<HomeScreen> {
         'label': 'Factory Reset',
         'command': 'factory_reset',
         'icon': Icons.settings_backup_restore
-      }, 
+      },
       {
         'label': 'Reboot device',
         'command': 'reboot',
         'icon': Icons.restart_alt
-      },      
+      },
     ];
     return Card(
       margin: const EdgeInsets.all(16),
@@ -429,11 +432,11 @@ class _HomeScreenState extends State<HomeScreen> {
                 leading: Icon(cmd['icon'] as IconData),
                 title: Text(cmd['label'] as String),
                 // Add trailing arrow icon for manager screens
-                trailing: (cmd['command'] == 'software_manager' || 
-                       cmd['command'] == 'service_manager' || 
-                       cmd['command'] == 'firmware_manager') 
-                  ? const Icon(Icons.arrow_forward_ios, size: 16) 
-                  : null,
+                trailing: (cmd['command'] == 'software_manager' ||
+                        cmd['command'] == 'service_manager' ||
+                        cmd['command'] == 'firmware_manager')
+                    ? const Icon(Icons.arrow_forward_ios, size: 16)
+                    : null,
                 onTap: () async {
                   if (_wifiStatus == null) {
                     showDialog(
@@ -457,7 +460,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     _handle_command(cmd['command'] as String);
                   } catch (e) {
                     return;
-                  } 
+                  }
 
                   // // For demonstration, actually should call BleService/HttpService to send the command
                   // ScaffoldMessenger.of(context).showSnackBar(
@@ -481,7 +484,9 @@ class _HomeScreenState extends State<HomeScreen> {
     if (_browserUrlsError != null) {
       return Padding(
         padding: const EdgeInsets.all(16.0),
-        child: Text('The server might not be ready yet, please click the refresh button.', style: const TextStyle(color: Colors.red)),
+        child: Text(
+            'The server might not be ready yet, please click the refresh button.',
+            style: const TextStyle(color: Colors.red)),
       );
     }
 
@@ -496,7 +501,10 @@ class _HomeScreenState extends State<HomeScreen> {
           padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
           child: Text(
             'Device Web Interfaces:',
-            style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+            style: Theme.of(context)
+                .textTheme
+                .titleMedium
+                ?.copyWith(fontWeight: FontWeight.bold),
           ),
         ),
         ListView.builder(
@@ -508,9 +516,13 @@ class _HomeScreenState extends State<HomeScreen> {
             return Card(
               margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
               child: ListTile(
-                leading: const Icon(Icons.travel_explore, color: Colors.blueAccent),
-                title: Text(browserUrl.name, style: const TextStyle(fontWeight: FontWeight.w500)),
-                subtitle: Text(browserUrl.url, overflow: TextOverflow.ellipsis, style: TextStyle(color: Colors.grey[600])),
+                leading:
+                    const Icon(Icons.travel_explore, color: Colors.blueAccent),
+                title: Text(browserUrl.name,
+                    style: const TextStyle(fontWeight: FontWeight.w500)),
+                subtitle: Text(browserUrl.url,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(color: Colors.grey[600])),
                 trailing: const Icon(Icons.arrow_forward_ios, size: 16),
                 onTap: () async {
                   final uri = Uri.parse(browserUrl.url);
@@ -519,7 +531,9 @@ class _HomeScreenState extends State<HomeScreen> {
                   } else {
                     if (mounted) {
                       ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(content: Text('Could not launch ${browserUrl.url}')),
+                        SnackBar(
+                            content:
+                                Text('Could not launch ${browserUrl.url}')),
                       );
                     }
                   }
@@ -551,9 +565,20 @@ class _HomeScreenState extends State<HomeScreen> {
           physics: const AlwaysScrollableScrollPhysics(),
           children: [
             _buildDeviceCard(),
-            if (_wifiStatus != null && _wifiStatus!.isConnected) _buildBrowserUrlCards(),
+            if (_wifiStatus != null && _wifiStatus!.isConnected)
+              _buildBrowserUrlCards(),
             _buildCommandList(),
           ],
+        ),
+      ),
+      bottomNavigationBar: SafeArea(
+        child: Container(
+          height: 32, // 明确指定高度
+          alignment: Alignment.center,
+          child: Text(
+            'version 1.1.2+1',
+            style: TextStyle(fontSize: 12, color: Colors.grey),
+          ),
         ),
       ),
     );
