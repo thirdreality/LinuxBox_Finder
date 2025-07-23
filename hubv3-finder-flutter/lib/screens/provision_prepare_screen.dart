@@ -77,7 +77,7 @@ class _FlashingLedState extends State<FlashingLed> with SingleTickerProviderStat
   void initState() {
     super.initState();
     _controller = AnimationController(
-      duration: const Duration(milliseconds: 500),
+      duration: const Duration(milliseconds: 1000),
       vsync: this,
     )..repeat(reverse: true);
   }
