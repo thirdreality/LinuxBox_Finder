@@ -2,13 +2,21 @@ import 'package:flutter/material.dart';
 import 'device_scan_screen.dart';
 
 class ProvisionPrepareScreen extends StatelessWidget {
-  const ProvisionPrepareScreen({Key? key}) : super(key: key);
+  final String mode; // 'wifi' or 'config'
+  
+  const ProvisionPrepareScreen({Key? key, required this.mode}) : super(key: key);
 
   @override
   Widget build(BuildContext context) {
+    final bool isWifiMode = mode == 'wifi';
+    final String title = isWifiMode ? 'Prepare Wifi Provision' : 'Prepare Device Config';
+    final String instruction = isWifiMode 
+        ? 'Please double-click the button on the device to confirm the LED starts flashing yellow.'
+        : 'Please double-click the button on the device to confirm the LED starts flashing yellow.';
+    
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Prepare Wifi Provision'),
+        title: Text(title),
       ),
       body: Padding(
         padding: const EdgeInsets.all(16.0),
@@ -23,9 +31,9 @@ class ProvisionPrepareScreen extends StatelessWidget {
               ),
               child: Padding(
                 padding: const EdgeInsets.symmetric(vertical: 32.0, horizontal: 16.0),
-                child: const Text(
-                  'Please double-click the button on the device to confirm the LED starts flashing yellow.',
-                  style: TextStyle(fontSize: 16.0),
+                child: Text(
+                  instruction,
+                  style: const TextStyle(fontSize: 16.0),
                   textAlign: TextAlign.center,
                 ),
               ),
@@ -48,7 +56,9 @@ class ProvisionPrepareScreen extends StatelessWidget {
                     onPressed: () {
                       Navigator.push(
                         context,
-                        MaterialPageRoute(builder: (context) => const DeviceScanScreen()),
+                        MaterialPageRoute(
+                          builder: (context) => DeviceScanScreen(mode: mode),
+                        ),
                       );
                     },
                     child: const Text('Confirm'),

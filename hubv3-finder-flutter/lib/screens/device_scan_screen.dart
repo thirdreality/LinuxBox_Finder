@@ -4,10 +4,13 @@ import '../models/ble_device.dart';
 import '../services/ble_service.dart';
 import '../services/http_service.dart';
 import 'provision_screen.dart';
+import 'system_config_screen.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class DeviceScanScreen extends StatefulWidget {
-  const DeviceScanScreen({Key? key}) : super(key: key);
+  final String mode; // 'wifi' or 'config'
+  
+  const DeviceScanScreen({Key? key, required this.mode}) : super(key: key);
 
   @override
   _DeviceScanScreenState createState() => _DeviceScanScreenState();
@@ -232,11 +235,13 @@ class _DeviceScanScreenState extends State<DeviceScanScreen> {
       await prefs.setString('provision_device_ip', device.ipAddress!);
     }
     
-    // Navigate to ProvisionScreen without connecting BLE first
+    // Navigate to different screens based on mode
     final result = await Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (context) => ProvisionScreen(deviceId: device.id),
+        builder: (context) => widget.mode == 'wifi' 
+            ? ProvisionScreen(deviceId: device.id)
+            : SystemConfigScreen(deviceId: device.id),
       ),
     );
     

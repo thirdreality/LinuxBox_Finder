@@ -10,6 +10,7 @@ import 'firmware_manager_screen.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../models/browser_url.dart';
 import 'provision_prepare_screen.dart';
+import 'system_info_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({Key? key}) : super(key: key);
@@ -157,22 +158,25 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _goToProvisionPrepare() async {
-    await Navigator.push(
-      context,
-      MaterialPageRoute(builder: (context) => const ProvisionPrepareScreen()),
-    );
-  }
-
-  void _goToScan() async {
     final result = await Navigator.push(
       context,
-      MaterialPageRoute(builder: (context) => const DeviceScanScreen()),
+      MaterialPageRoute(builder: (context) => const ProvisionPrepareScreen(mode: 'wifi')),
     );
     // Handle the returned device info from scan page and refresh
     if (result is Map && result['selected_device_id'] != null) {
       await _loadSelectedDevice();
     }
-    // If result is not a valid selection, do not refresh device info
+  }
+
+  void _goToConfigPrepare() async {
+    final result = await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (context) => const ProvisionPrepareScreen(mode: 'config')),
+    );
+    // Handle the returned device info from scan page and refresh
+    if (result is Map && result['selected_device_id'] != null) {
+      await _loadSelectedDevice();
+    }
   }
 
   Widget _buildDeviceCard() {
@@ -192,26 +196,64 @@ class _HomeScreenState extends State<HomeScreen> {
       );
     }
     if (_selectedDeviceId == null || _selectedDeviceIp == null) {
-      return GestureDetector(
-        onTap: _goToProvisionPrepare,
-        child: Card(
-          color: Colors.grey[200],
-          margin: const EdgeInsets.all(16),
-          child: SizedBox(
-            height: 120,
-            child: Center(
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: const [
-                  Icon(Icons.add_circle_outline, color: Colors.blue, size: 28),
-                  SizedBox(width: 8),
-                  Text(
-                    'Add Device',
-                    style: TextStyle(fontSize: 20, color: Colors.blue),
+      return Card(
+        margin: const EdgeInsets.all(16),
+        child: Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Row(
+            children: [
+              Expanded(
+                child: GestureDetector(
+                  onTap: _goToProvisionPrepare,
+                  child: Container(
+                    height: 80,
+                    decoration: BoxDecoration(
+                      color: Colors.grey[200],
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Center(
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: const [
+                          Icon(Icons.add_circle_outline, color: Colors.blue, size: 24),
+                          SizedBox(width: 8),
+                          Text(
+                            'Add Device',
+                            style: TextStyle(fontSize: 16, color: Colors.blue),
+                          ),
+                        ],
+                      ),
+                    ),
                   ),
-                ],
+                ),
               ),
-            ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: GestureDetector(
+                  onTap: _goToConfigPrepare,
+                  child: Container(
+                    height: 80,
+                    decoration: BoxDecoration(
+                      color: Colors.grey[200],
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Center(
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: const [
+                          Icon(Icons.settings, color: Colors.green, size: 24),
+                          SizedBox(width: 8),
+                          Text(
+                            'Config',
+                            style: TextStyle(fontSize: 16, color: Colors.green),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
           ),
         ),
       );
@@ -317,6 +359,14 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _handle_command(String command) async {
     try {
       switch (command) {
+        case 'system_info':
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => const SystemInfoScreen(),
+            ),
+          );
+          break;
         case 'software_manager':
           Navigator.push(
             context,
@@ -392,6 +442,11 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget _buildCommandList() {
     final commands = [
       {
+        'label': 'System Information',
+        'command': 'system_info',
+        'icon': Icons.info_outline
+      },
+      {
         'label': 'Software Manager',
         'command': 'software_manager',
         'icon': Icons.apps
@@ -432,7 +487,8 @@ class _HomeScreenState extends State<HomeScreen> {
                 leading: Icon(cmd['icon'] as IconData),
                 title: Text(cmd['label'] as String),
                 // Add trailing arrow icon for manager screens
-                trailing: (cmd['command'] == 'software_manager' ||
+                trailing: (cmd['command'] == 'system_info' ||
+                        cmd['command'] == 'software_manager' ||
                         cmd['command'] == 'service_manager' ||
                         cmd['command'] == 'firmware_manager')
                     ? const Icon(Icons.arrow_forward_ios, size: 16)

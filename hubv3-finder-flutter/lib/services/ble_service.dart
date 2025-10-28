@@ -32,6 +32,8 @@ class BleService {
   // Use standard UUIDs for GATT attributes
   static const String SERVICE_UUID = "6e400000-0000-4e98-8024-bc5b71e0893e";
   static const String HUBV3_WIFI_CONFIG_CHAR_UUID = "6e400001-0000-4e98-8024-bc5b71e0893e";
+  static const String HUBV3_SYSTEM_INFO_CHAR_UUID = "6e400002-0000-4e98-8024-bc5b71e0893e";
+  static const String HUBV3_SERVER_CONFIG_CHAR_UUID = "6e400003-0000-4e98-8024-bc5b71e0893e";
 
   // Stream controllers
   final StreamController<List<BleDevice>> _deviceStreamController = StreamController<List<BleDevice>>.broadcast();
@@ -525,6 +527,537 @@ class BleService {
     print('No valid JSON structure found, returning original');
     // If a complete JSON structure is not found, return the original string
     return input;
+  }
+
+  // Query system information
+  Future<dynamic> querySystemInfo(String infoType) async {
+    String defaultResult = '{"status":"error","message":"Failed to query system info"}';
+    try {
+      print('Querying system info using BLE mode');
+
+      if (_connectedDevice == null) {
+        throw Exception('Not connected to any device');
+      }
+
+      // Discover services
+      List<BluetoothService> services = await _connectedDevice!.discoverServices();
+
+      // Find our service
+      BluetoothService service = services.firstWhere(
+            (s) => s.uuid.toString().toLowerCase() == SERVICE_UUID.toLowerCase(),
+      );
+
+      // Find System Info characteristic
+      BluetoothCharacteristic systemInfoChar = service.characteristics.firstWhere(
+            (c) => c.uuid.toString().toLowerCase() == HUBV3_SYSTEM_INFO_CHAR_UUID.toLowerCase(),
+      );
+
+      // Prepare the JSON payload
+      Map<String, dynamic> payload = {
+        'info_type': infoType
+      };
+
+      String jsonPayload = jsonEncode(payload);
+      print('Sending system info query: $jsonPayload');
+
+      // Create a Completer to wait for response
+      Completer<String> completer = Completer<String>();
+      StreamSubscription<List<int>>? subscription;
+
+      // Buffer to collect fragmented data
+      List<int> dataBuffer = [];
+      int fragmentCount = 0;
+
+      // Set timeout
+      Timer? timer;
+      
+      void startTimeout() {
+        timer?.cancel();
+        Duration timeoutDuration = dataBuffer.isEmpty 
+          ? const Duration(seconds: 30)  // Initial timeout
+          : const Duration(seconds: 10); // Fragment timeout
+        
+        timer = Timer(timeoutDuration, () {
+          if (!completer.isCompleted) {
+            subscription?.cancel();
+            if (dataBuffer.isNotEmpty) {
+              print('Timeout during fragment reception. Received $fragmentCount fragments, ${dataBuffer.length} bytes total');
+              print('Partial data: "${String.fromCharCodes(dataBuffer)}"');
+              
+              // Try to parse partial data as JSON if it looks complete
+              try {
+                String partialString = utf8.decode(dataBuffer).trim();
+                if (partialString.startsWith('{') && partialString.endsWith('}')) {
+                  final jsonData = jsonDecode(partialString);
+                  print('Partial data appears to be valid JSON: $jsonData');
+                  completer.complete(partialString);
+                  return;
+                }
+              } catch (e) {
+                print('Partial data is not valid JSON: $e');
+              }
+            } else {
+              print('Timeout waiting for initial response');
+            }
+            completer.complete(defaultResult);
+            print('Timeout getting system info result, returning default state');
+          }
+        });
+      }
+      
+      // Start initial timeout
+      startTimeout();
+
+      print('*** Setting up listener for system info characteristic: ${systemInfoChar.uuid}');
+      print('*** Characteristic properties: write=${systemInfoChar.properties.write}, notify=${systemInfoChar.properties.notify}, indicate=${systemInfoChar.properties.indicate}');
+      
+      // Listen to indicate notification
+      subscription = systemInfoChar.onValueReceived.listen((value) {
+        print('*** SYSTEM INFO LISTENER TRIGGERED *** - Raw bytes received: ${value.length}');
+        fragmentCount++;
+        print('=== Fragment $fragmentCount received ===');
+        print('Fragment size: ${value.length} bytes');
+        
+        // Convert bytes to string for debugging
+        String currentFragment;
+        try {
+          currentFragment = utf8.decode(value);
+          print('Fragment content: "$currentFragment"');
+        } catch (e) {
+          print('Fragment contains non-UTF8 data: ${value.map((b) => b.toRadixString(16).padLeft(2, '0')).join(' ')}');
+          currentFragment = '[Binary data]';
+        }
+        
+        // Reset timeout when we receive data
+        if (dataBuffer.isEmpty) {
+          print('First fragment received, resetting timeout');
+          startTimeout();
+        } else {
+          print('Additional fragment received, extending timeout');
+          startTimeout();
+        }
+        
+        // Add received data to buffer
+        dataBuffer.addAll(value);
+        print('Total buffered data: ${dataBuffer.length} bytes');
+
+        // Try to decode as string to check if we have a complete message
+        String bufferedString;
+        try {
+          bufferedString = utf8.decode(dataBuffer);
+        } catch (e) {
+          print('UTF-8 decode error, waiting for more data: $e');
+          return; // Wait for more data
+        }
+        
+        print('Current buffered string: "$bufferedString"');
+
+        // Check for newline terminator (\n) to determine if message is complete
+        int newlineTerminatorIndex = bufferedString.indexOf('\n');
+        
+        if (newlineTerminatorIndex != -1) {
+          print('Newline terminator found at position $newlineTerminatorIndex');
+          // Extract the message up to the newline terminator
+          String completeMessage = bufferedString.substring(0, newlineTerminatorIndex);
+          print('Complete message (before newline terminator): "$completeMessage"');
+
+          // Try to parse as JSON
+          try {
+            final jsonData = jsonDecode(completeMessage);
+            print('System info JSON valid: $jsonData');
+            print('Successfully reassembled $fragmentCount fragments into complete message');
+            
+            subscription?.cancel();
+            timer?.cancel();
+            if (!completer.isCompleted) {
+              print('Completing with result: $completeMessage');
+              completer.complete(completeMessage);
+            }
+            return;
+          } catch (e) {
+            print('System info JSON invalid: $e');
+            print('Invalid JSON content: "$completeMessage"');
+            subscription?.cancel();
+            timer?.cancel();
+            if (!completer.isCompleted) {
+              completer.complete(defaultResult);
+            }
+          }
+        } else {
+          // Check if we have a potentially complete JSON without newline terminator
+          if (bufferedString.trim().startsWith('{') && bufferedString.trim().endsWith('}')) {
+            print('Potential complete JSON found without newline terminator, attempting to parse...');
+            try {
+              final jsonData = jsonDecode(bufferedString.trim());
+              print('System info JSON valid (without newline terminator): $jsonData');
+              print('Successfully reassembled $fragmentCount fragments into complete message');
+              
+              subscription?.cancel();
+              timer?.cancel();
+              if (!completer.isCompleted) {
+                print('Completing with result: ${bufferedString.trim()}');
+                completer.complete(bufferedString.trim());
+              }
+              return;
+            } catch (e) {
+              print('JSON parsing failed even without newline terminator: $e');
+              print('Waiting for more data or newline terminator...');
+            }
+          } else {
+            print('No newline terminator found, waiting for more data...');
+            print('Need more fragments to complete the message...');
+          }
+        }
+      }, onError: (error) {
+        print('System info notification error: $error');
+        if (!completer.isCompleted) {
+          completer.complete(defaultResult);
+        }
+        subscription?.cancel();
+        timer?.cancel();
+      });
+
+      // Enable indicate
+      try {
+        print('*** Attempting to enable notifications for system info characteristic');
+        print('*** Notify supported: ${systemInfoChar.properties.notify}');
+        print('*** Indicate supported: ${systemInfoChar.properties.indicate}');
+        
+        await systemInfoChar.setNotifyValue(true);
+        print('System info notification enabled');
+        print('*** Listener should now be active and ready to receive data');
+
+        // Send system info query data using 20-byte chunks with platform-specific delay
+        if (systemInfoChar.properties.write) {
+          String jsonPayloadWithNewline = jsonPayload + '\n';
+          List<int> data = utf8.encode(jsonPayloadWithNewline);
+          print('System info query data length: ${data.length} bytes (including newline terminator)');
+          print('Sending in 20-byte chunks (no long write)');
+
+          int maxSendLength = 20;
+          for (int i = 0; i < data.length; i += maxSendLength) {
+            List<int> chunk;
+            if (i + maxSendLength < data.length) {
+              chunk = data.getRange(i, i + maxSendLength).toList();
+            } else {
+              chunk = data.getRange(i, data.length).toList();
+            }
+            print('Sending chunk [${i}..${i + chunk.length}]: ${chunk.map((e) => e.toRadixString(16)).toList()}');
+            await systemInfoChar.write(
+              chunk,
+              withoutResponse: true,
+              allowLongWrite: false,
+              timeout: 5,
+            );
+            // Platform-specific delay
+            if (Platform.isAndroid) {
+              await Future.delayed(const Duration(milliseconds: 200));
+            } else if (Platform.isIOS) {
+              await Future.delayed(const Duration(milliseconds: 50));
+            } else {
+              await Future.delayed(const Duration(milliseconds: 100)); // fallback
+            }
+          }
+          print('All chunks sent.');
+        }
+
+        // Wait for notification result or timeout
+        final result = await completer.future;
+
+        // Close notification after completion
+        try {
+          await systemInfoChar.setNotifyValue(false);
+          print('System info result notification closed');
+        } catch (e) {
+          print('Failed to close notification: $e');
+        }
+
+        return result;
+      } catch (e) {
+        subscription?.cancel();
+        timer?.cancel();
+        print('Failed to set system info result notification: $e');
+        return defaultResult;
+      }
+
+    } catch (e) {
+      print('Failed to query system info: $e');
+      return defaultResult;
+    }
+  }
+
+  // Configure server settings
+  Future<dynamic> configureServer({
+    String? action,
+    String? baseTopic,
+    String? server,
+    String? user,
+    String? password,
+    String? clientId,
+  }) async {
+    String defaultResult = '{"status":"error","message":"Failed to configure server"}';
+    try {
+      print('Configuring server using BLE mode');
+
+      if (_connectedDevice == null) {
+        throw Exception('Not connected to any device');
+      }
+
+      // Discover services
+      List<BluetoothService> services = await _connectedDevice!.discoverServices();
+
+      // Find our service
+      BluetoothService service = services.firstWhere(
+            (s) => s.uuid.toString().toLowerCase() == SERVICE_UUID.toLowerCase(),
+      );
+
+      // Find Server Config characteristic
+      BluetoothCharacteristic serverConfigChar = service.characteristics.firstWhere(
+            (c) => c.uuid.toString().toLowerCase() == HUBV3_SERVER_CONFIG_CHAR_UUID.toLowerCase(),
+      );
+
+      // Prepare the JSON payload
+      Map<String, dynamic> payload = {
+        'action': action ?? 'get'
+      };
+
+      // Add optional parameters based on action
+      if (action == 'set') {
+        if (baseTopic != null && baseTopic.isNotEmpty) payload['base_topic'] = baseTopic;
+        if (server != null && server.isNotEmpty) payload['server'] = server;
+        if (user != null && user.isNotEmpty) payload['user'] = user;
+        if (password != null && password.isNotEmpty) payload['password'] = password;
+        if (clientId != null && clientId.isNotEmpty) payload['client_id'] = clientId;
+      }
+
+      String jsonPayload = jsonEncode(payload);
+      print('Sending server config: $jsonPayload');
+      print('JSON length: ${jsonPayload.length} bytes');
+
+      // Create a Completer to wait for response
+      Completer<String> completer = Completer<String>();
+      StreamSubscription<List<int>>? subscription;
+
+      // Buffer to collect fragmented data
+      List<int> dataBuffer = [];
+      int fragmentCount = 0;
+
+      // Set timeout
+      Timer? timer;
+      
+      void startTimeout() {
+        timer?.cancel();
+        Duration timeoutDuration = dataBuffer.isEmpty 
+          ? const Duration(seconds: 30)  // Initial timeout
+          : const Duration(seconds: 10); // Fragment timeout
+        
+        timer = Timer(timeoutDuration, () {
+          if (!completer.isCompleted) {
+            subscription?.cancel();
+            if (dataBuffer.isNotEmpty) {
+              print('Timeout during fragment reception. Received $fragmentCount fragments, ${dataBuffer.length} bytes total');
+              print('Partial data: "${String.fromCharCodes(dataBuffer)}"');
+              
+              // Try to parse partial data as JSON if it looks complete
+              try {
+                String partialString = utf8.decode(dataBuffer).trim();
+                if (partialString.startsWith('{') && partialString.endsWith('}')) {
+                  final jsonData = jsonDecode(partialString);
+                  print('Partial data appears to be valid JSON: $jsonData');
+                  completer.complete(partialString);
+                  return;
+                }
+              } catch (e) {
+                print('Partial data is not valid JSON: $e');
+              }
+            } else {
+              print('Timeout waiting for initial response');
+            }
+            completer.complete(defaultResult);
+            print('Timeout getting server config result, returning default state');
+          }
+        });
+      }
+      
+      // Start initial timeout
+      startTimeout();
+
+      print('*** Setting up listener for server config characteristic: ${serverConfigChar.uuid}');
+      print('*** Characteristic properties: write=${serverConfigChar.properties.write}, notify=${serverConfigChar.properties.notify}, indicate=${serverConfigChar.properties.indicate}');
+      
+      // Listen to indicate notification
+      subscription = serverConfigChar.onValueReceived.listen((value) {
+        print('*** SERVER CONFIG LISTENER TRIGGERED *** - Raw bytes received: ${value.length}');
+        fragmentCount++;
+        print('=== Fragment $fragmentCount received ===');
+        print('Fragment size: ${value.length} bytes');
+        
+        // Convert bytes to string for debugging
+        String currentFragment;
+        try {
+          currentFragment = utf8.decode(value);
+          print('Fragment content: "$currentFragment"');
+        } catch (e) {
+          print('Fragment contains non-UTF8 data: ${value.map((b) => b.toRadixString(16).padLeft(2, '0')).join(' ')}');
+          currentFragment = '[Binary data]';
+        }
+        
+        // Reset timeout when we receive data
+        if (dataBuffer.isEmpty) {
+          print('First fragment received, resetting timeout');
+          startTimeout();
+        } else {
+          print('Additional fragment received, extending timeout');
+          startTimeout();
+        }
+        
+        // Add received data to buffer
+        dataBuffer.addAll(value);
+        print('Total buffered data: ${dataBuffer.length} bytes');
+
+        // Try to decode as string to check if we have a complete message
+        String bufferedString;
+        try {
+          bufferedString = utf8.decode(dataBuffer);
+        } catch (e) {
+          print('UTF-8 decode error, waiting for more data: $e');
+          return; // Wait for more data
+        }
+        
+        print('Current buffered string: "$bufferedString"');
+
+        // Check for newline terminator (\n) to determine if message is complete
+        int newlineTerminatorIndex = bufferedString.indexOf('\n');
+        
+        if (newlineTerminatorIndex != -1) {
+          print('Newline terminator found at position $newlineTerminatorIndex');
+          // Extract the message up to the newline terminator
+          String completeMessage = bufferedString.substring(0, newlineTerminatorIndex);
+          print('Complete message (before newline terminator): "$completeMessage"');
+
+          // Try to parse as JSON
+          try {
+            final jsonData = jsonDecode(completeMessage);
+            print('Server config JSON valid: $jsonData');
+            print('Successfully reassembled $fragmentCount fragments into complete message');
+            
+            subscription?.cancel();
+            timer?.cancel();
+            if (!completer.isCompleted) {
+              print('Completing with result: $completeMessage');
+              completer.complete(completeMessage);
+            }
+            return;
+          } catch (e) {
+            print('Server config JSON invalid: $e');
+            print('Invalid JSON content: "$completeMessage"');
+            subscription?.cancel();
+            timer?.cancel();
+            if (!completer.isCompleted) {
+              completer.complete(defaultResult);
+            }
+          }
+        } else {
+          // Check if we have a potentially complete JSON without newline terminator
+          if (bufferedString.trim().startsWith('{') && bufferedString.trim().endsWith('}')) {
+            print('Potential complete JSON found without newline terminator, attempting to parse...');
+            try {
+              final jsonData = jsonDecode(bufferedString.trim());
+              print('Server config JSON valid (without newline terminator): $jsonData');
+              print('Successfully reassembled $fragmentCount fragments into complete message');
+              
+              subscription?.cancel();
+              timer?.cancel();
+              if (!completer.isCompleted) {
+                print('Completing with result: ${bufferedString.trim()}');
+                completer.complete(bufferedString.trim());
+              }
+              return;
+            } catch (e) {
+              print('JSON parsing failed even without newline terminator: $e');
+              print('Waiting for more data or newline terminator...');
+            }
+          } else {
+            print('No newline terminator found, waiting for more data...');
+            print('Need more fragments to complete the message...');
+          }
+        }
+      }, onError: (error) {
+        print('Server config notification error: $error');
+        if (!completer.isCompleted) {
+          completer.complete(defaultResult);
+        }
+        subscription?.cancel();
+        timer?.cancel();
+      });
+
+      // Enable indicate
+      try {
+        print('*** Attempting to enable notifications for server config characteristic');
+        print('*** Notify supported: ${serverConfigChar.properties.notify}');
+        print('*** Indicate supported: ${serverConfigChar.properties.indicate}');
+        
+        await serverConfigChar.setNotifyValue(true);
+        print('Server config notification enabled');
+        print('*** Listener should now be active and ready to receive data');
+
+        // Send server config data using 20-byte chunks with platform-specific delay
+        if (serverConfigChar.properties.write) {
+          String jsonPayloadWithNewline = jsonPayload + '\n';
+          List<int> data = utf8.encode(jsonPayloadWithNewline);
+          print('Server config data length: ${data.length} bytes (including newline terminator)');
+          print('Sending in 20-byte chunks (no long write)');
+
+          int maxSendLength = 20;
+          for (int i = 0; i < data.length; i += maxSendLength) {
+            List<int> chunk;
+            if (i + maxSendLength < data.length) {
+              chunk = data.getRange(i, i + maxSendLength).toList();
+            } else {
+              chunk = data.getRange(i, data.length).toList();
+            }
+            print('Sending chunk [${i}..${i + chunk.length}]: ${chunk.map((e) => e.toRadixString(16)).toList()}');
+            await serverConfigChar.write(
+              chunk,
+              withoutResponse: true,
+              allowLongWrite: false,
+              timeout: 5,
+            );
+            // Platform-specific delay
+            if (Platform.isAndroid) {
+              await Future.delayed(const Duration(milliseconds: 200));
+            } else if (Platform.isIOS) {
+              await Future.delayed(const Duration(milliseconds: 50));
+            } else {
+              await Future.delayed(const Duration(milliseconds: 100)); // fallback
+            }
+          }
+          print('All chunks sent.');
+        }
+
+        // Wait for notification result or timeout
+        final result = await completer.future;
+
+        // Close notification after completion
+        try {
+          await serverConfigChar.setNotifyValue(false);
+          print('Server config result notification closed');
+        } catch (e) {
+          print('Failed to close notification: $e');
+        }
+
+        return result;
+      } catch (e) {
+        subscription?.cancel();
+        timer?.cancel();
+        print('Failed to set server config result notification: $e');
+        return defaultResult;
+      }
+
+    } catch (e) {
+      print('Failed to configure server: $e');
+      return defaultResult;
+    }
   }
 
   // Configure WiFi
