@@ -14,7 +14,13 @@ import 'package:shared_preferences/shared_preferences.dart';
 class ProvisionScreen extends StatefulWidget {
   final String deviceId;
   final void Function(String ipAddr)? onProvisionSuccess;
-  const ProvisionScreen({Key? key, required this.deviceId, this.onProvisionSuccess}) : super(key: key);
+  final bool isComplexFlow; // 标记是否在复杂流程中（复杂流程中WiFi配置后不断开BLE连接）
+  const ProvisionScreen({
+    Key? key,
+    required this.deviceId,
+    this.onProvisionSuccess,
+    this.isComplexFlow = false,
+  }) : super(key: key);
 
   @override
   _ProvisionScreenState createState() => _ProvisionScreenState();
@@ -32,8 +38,11 @@ class _ProvisionScreenState extends State<ProvisionScreen> {
     print('[Provision] ProvisionScreen being disposed - navigation may have occurred');
     //print('[Provision] Stack trace for dispose:');
     //print(StackTrace.current);
-    // Disconnect BLE when leaving the page
-    BleService().disconnect();
+    // 如果不是复杂流程，则断开BLE连接
+    // 复杂流程中，BLE连接会在post config页面退出时断开
+    if (!widget.isComplexFlow) {
+      BleService().disconnect();
+    }
     super.dispose();
   }
 
@@ -254,7 +263,14 @@ class _ProvisionScreenState extends State<ProvisionScreen> {
           String ipAddress = json['ip'] ?? '';
           if (ipAddress.isNotEmpty) {
             print('[Provision] WiFi configuration successful, IP: $ipAddress');
-            await bleService.disconnect();
+            
+            // 如果不是复杂流程，则断开BLE连接
+            if (!widget.isComplexFlow) {
+              await bleService.disconnect();
+            } else {
+              print('[Provision] Complex flow: keeping BLE connection alive');
+            }
+            
             final prefs = await SharedPreferences.getInstance();
             await prefs.setString('selected_device_ip', ipAddress);
             await prefs.setString('selected_device_id', widget.deviceId);
@@ -268,19 +284,38 @@ class _ProvisionScreenState extends State<ProvisionScreen> {
               widget.onProvisionSuccess!(ipAddress);
             }
             _forceCloseDialog();
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('WiFi configuration successful! Returning to home page.'),
-                backgroundColor: Colors.green,
-              ),
-            );
-            setState(() {
-              _isLoading = false;
-              _suppressConnectionLostMessages = false;
-            });
-            if (mounted) {
-              print('[Provision] Navigating to home page after successful configuration');
-              Navigator.of(context).pushNamedAndRemoveUntil('/', (route) => false);
+            
+            // 根据流程类型显示不同的消息
+            if (widget.isComplexFlow) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('WiFi configuration successful! Proceeding to next step...'),
+                  backgroundColor: Colors.green,
+                ),
+              );
+              setState(() {
+                _isLoading = false;
+                _suppressConnectionLostMessages = false;
+              });
+              // 复杂流程：返回结果，让调用方处理导航
+              if (mounted) {
+                Navigator.of(context).pop({'success': true, 'ip': ipAddress});
+              }
+            } else {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('WiFi configuration successful! Returning to home page.'),
+                  backgroundColor: Colors.green,
+                ),
+              );
+              setState(() {
+                _isLoading = false;
+                _suppressConnectionLostMessages = false;
+              });
+              if (mounted) {
+                print('[Provision] Navigating to home page after successful configuration');
+                Navigator.of(context).pushNamedAndRemoveUntil('/', (route) => false);
+              }
             }
             return;
           } else {
@@ -303,7 +338,14 @@ class _ProvisionScreenState extends State<ProvisionScreen> {
         if (json.containsKey('status')) {
           if (json['status'] == true && json['ip'] != null && json['ip'].toString().isNotEmpty) {
             print('[Provision] WiFi configuration successful (legacy format)');
-            await bleService.disconnect();
+            
+            // 如果不是复杂流程，则断开BLE连接
+            if (!widget.isComplexFlow) {
+              await bleService.disconnect();
+            } else {
+              print('[Provision] Complex flow: keeping BLE connection alive');
+            }
+            
             final prefs = await SharedPreferences.getInstance();
             await prefs.setString('selected_device_ip', json['ip']);
             await prefs.setString('selected_device_id', widget.deviceId);
@@ -317,19 +359,38 @@ class _ProvisionScreenState extends State<ProvisionScreen> {
               widget.onProvisionSuccess!(json['ip']);
             }
             _forceCloseDialog();
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('WiFi configuration successful! Returning to home page.'),
-                backgroundColor: Colors.green,
-              ),
-            );
-            setState(() {
-              _isLoading = false;
-              _suppressConnectionLostMessages = false;
-            });
-            if (mounted) {
-              print('[Provision] Navigating to home page after successful configuration');
-              Navigator.of(context).pushNamedAndRemoveUntil('/', (route) => false);
+            
+            // 根据流程类型显示不同的消息
+            if (widget.isComplexFlow) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('WiFi configuration successful! Proceeding to next step...'),
+                  backgroundColor: Colors.green,
+                ),
+              );
+              setState(() {
+                _isLoading = false;
+                _suppressConnectionLostMessages = false;
+              });
+              // 复杂流程：返回结果，让调用方处理导航
+              if (mounted) {
+                Navigator.of(context).pop({'success': true, 'ip': json['ip']});
+              }
+            } else {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('WiFi configuration successful! Returning to home page.'),
+                  backgroundColor: Colors.green,
+                ),
+              );
+              setState(() {
+                _isLoading = false;
+                _suppressConnectionLostMessages = false;
+              });
+              if (mounted) {
+                print('[Provision] Navigating to home page after successful configuration');
+                Navigator.of(context).pushNamedAndRemoveUntil('/', (route) => false);
+              }
             }
             return;
           } else {
@@ -619,7 +680,9 @@ class _ProvisionScreenState extends State<ProvisionScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('WiFi Configuration'),
+        title: Text(widget.isComplexFlow 
+            ? 'WiFi Configuration (Setup Flow)' 
+            : 'WiFi Configuration'),
         automaticallyImplyLeading: !_isLoading, // Disable back button during loading
         leading: _isLoading ? null : null, // Explicitly set leading to null during loading
       ),

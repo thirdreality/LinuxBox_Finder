@@ -4,7 +4,7 @@ import '../models/ble_device.dart';
 import '../services/ble_service.dart';
 import '../services/http_service.dart';
 import 'provision_screen.dart';
-import 'system_config_screen.dart';
+import 'config_prepare_screen.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class DeviceScanScreen extends StatefulWidget {
@@ -241,7 +241,7 @@ class _DeviceScanScreenState extends State<DeviceScanScreen> {
       MaterialPageRoute(
         builder: (context) => widget.mode == 'wifi' 
             ? ProvisionScreen(deviceId: device.id)
-            : SystemConfigScreen(deviceId: device.id),
+            : ConfigPrepareScreen(deviceId: device.id),
       ),
     );
     

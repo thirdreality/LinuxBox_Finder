@@ -215,10 +215,10 @@ class _HomeScreenState extends State<HomeScreen> {
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: const [
-                          Icon(Icons.add_circle_outline, color: Colors.blue, size: 24),
+                          Icon(Icons.wifi, color: Colors.blue, size: 24),
                           SizedBox(width: 8),
                           Text(
-                            'Add Device',
+                            'WIFI',
                             style: TextStyle(fontSize: 16, color: Colors.blue),
                           ),
                         ],
